@@ -1,6 +1,8 @@
 # syntax=docker/dockerfile:1
 FROM node:24-bookworm AS build
 WORKDIR /app
+# No .git in the build context, so skip husky's prepare hook install.
+ENV HUSKY=0
 RUN corepack enable
 COPY package.json pnpm-lock.yaml .npmrc ./
 RUN pnpm install --frozen-lockfile
