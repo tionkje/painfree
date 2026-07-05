@@ -22,7 +22,8 @@
 	const nav = [
 		{ href: '/', label: 'Home' },
 		{ href: '/workout', label: 'Workout' },
-		{ href: '/history', label: 'History' }
+		{ href: '/history', label: 'History' },
+		{ href: '/settings', label: 'Settings' }
 	];
 </script>
 
