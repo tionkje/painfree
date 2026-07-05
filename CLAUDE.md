@@ -9,15 +9,16 @@ SvelteKit (adapter-node) · SQLite + Drizzle · Pino · Zod (startup env validat
 
 ## Layout
 
-- `src/lib/server/{env,logger,db,schema}.ts` — env validation, pino, drizzle conn (migrates + seeds at startup), tables
+- `src/lib/server/{env,logger,db,schema}.ts` — env validation, pino, drizzle conn (migrates at startup), tables
+- `src/lib/exercises.ts` — the exercise program (checked-in data + `static/exercises/*.svg` visuals)
 - `src/lib/streak.ts` (+ `.test.ts`) — pure streak/day logic, the only unit-tested bit
-- `src/hooks.server.ts` — imports db to run migrations + seed at boot
+- `src/hooks.server.ts` — imports db to run migrations at boot
 - routes: `/` (streak + banner), `/workout` (client timer), `/history`
 
 ## Data model
 
-- `exercises` — seeded McGill Big 3. `scheme` = reps-per-set (`"6,4,2"`), `hold_seconds`, `per_side`. **No settings UI — edit rows directly** (`pnpm dlx drizzle-kit studio`).
-- `sessions` — one row per completed workout. Streak/history derived from these.
+- The exercise program is **checked in**, not in the DB: `src/lib/exercises.ts` (`scheme` reps-per-set `"6,4,2"`, `holdSeconds`, `perSide`, `description`, `details`, `image`, optional `video`). Visuals are SVGs in `static/exercises/<slug>.svg`. Array order = workout order. Edit the file to change the program.
+- `sessions` — the only DB table. One row per completed workout. Streak/history derived from these.
 
 ## Commands
 

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 120" role="img" aria-label="Side plank: on one forearm, body in a straight line, hips lifted">
+  <g fill="none" stroke="#888" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+    <line x1="15" y1="100" x2="225" y2="100" stroke-width="2" stroke-dasharray="4 5"/>
+    <circle cx="60" cy="52" r="10"/>
+    <path d="M68 58 L200 92"/>
+    <path d="M70 60 L64 100"/>
+    <path d="M200 92 L165 100"/>
+    <path d="M120 76 L128 46"/>
+  </g>
+  <text x="120" y="18" fill="#888" font-family="sans-serif" font-size="12" text-anchor="middle">Side Plank</text>
+</svg>
