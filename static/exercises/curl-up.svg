@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 120" role="img" aria-label="Modified curl-up: lying on back, one knee bent, head and shoulders lifted slightly">
+  <g fill="none" stroke="#888" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+    <line x1="15" y1="100" x2="225" y2="100" stroke-width="2" stroke-dasharray="4 5"/>
+    <circle cx="70" cy="78" r="10"/>
+    <path d="M80 84 L150 92"/>
+    <path d="M150 92 L215 96"/>
+    <path d="M150 92 L118 60 L92 96"/>
+    <path d="M92 84 L120 96"/>
+  </g>
+  <text x="120" y="18" fill="#888" font-family="sans-serif" font-size="12" text-anchor="middle">Modified Curl-Up</text>
+</svg>

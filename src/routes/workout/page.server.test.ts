@@ -2,13 +2,13 @@ import { mkdtempSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { beforeAll, expect, test, vi } from 'vitest';
-import type { Exercise } from '$lib/server/schema';
+import type { Exercise } from '$lib/exercises';
 
 beforeAll(() => {
   vi.stubEnv('DATABASE_PATH', join(mkdtempSync(join(tmpdir(), 'painfree-')), 'workout.db'));
 });
 
-test('load returns the seeded program in order', async () => {
+test('load returns the checked-in program in order', async () => {
   const { load } = await import('./+page.server');
   const data = (await load({} as Parameters<typeof load>[0])) as { exercises: Exercise[] };
   expect(data.exercises.map((e) => e.slug)).toEqual(['curl-up', 'side-plank', 'bird-dog']);

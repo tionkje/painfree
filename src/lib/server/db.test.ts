@@ -12,26 +12,11 @@ afterEach(() => {
   vi.resetModules();
 });
 
-test('creates dir, migrates and seeds the McGill Big 3 on first run', async () => {
+test('creates the (nested) db dir and migrates the sessions table', async () => {
   vi.stubEnv('DATABASE_PATH', tmpDbPath());
   vi.resetModules();
   const { db } = await import('./db');
-  const { exercises } = await import('./schema');
-  const rows = db.select().from(exercises).all();
-  expect(rows.map((r) => r.slug)).toEqual(['curl-up', 'side-plank', 'bird-dog']);
-});
-
-test('does not re-seed when exercises already exist', async () => {
-  const path = tmpDbPath();
-
-  vi.stubEnv('DATABASE_PATH', path);
-  vi.resetModules();
-  const first = await import('./db');
-  const { exercises } = await import('./schema');
-  expect(first.db.select().from(exercises).all()).toHaveLength(3);
-
-  // Re-import against the same file: migrations re-run (idempotent), seed skipped.
-  vi.resetModules();
-  const second = await import('./db');
-  expect(second.db.select().from(exercises).all()).toHaveLength(3);
+  const { sessions } = await import('./schema');
+  // Migrations ran, so the table exists and is queryable — and starts empty.
+  expect(db.select().from(sessions).all()).toEqual([]);
 });

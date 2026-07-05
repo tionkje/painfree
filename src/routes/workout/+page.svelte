@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { enhance } from '$app/forms';
-  import type { Exercise } from '$lib/server/schema';
+  import type { Exercise } from '$lib/exercises';
   import type { PageData } from './$types';
 
   let { data }: { data: PageData } = $props();
@@ -137,10 +137,21 @@
   <details>
     <summary>Exercise instructions</summary>
     {#each data.exercises as ex (ex.slug)}
-      <p>
-        <strong>{ex.name}</strong> ({ex.scheme}{ex.perSide ? ', each side' : ''}, {ex.holdSeconds}s
-        holds)<br />{ex.description}
-      </p>
+      <article>
+        <hgroup>
+          <h3 style="margin-bottom:0">{ex.name}</h3>
+          <p>{ex.scheme}{ex.perSide ? ', each side' : ''}, {ex.holdSeconds}s holds</p>
+        </hgroup>
+        <img src={ex.image} alt="How to perform the {ex.name}" style="max-width:100%" />
+        <p>{ex.description}</p>
+        <details>
+          <summary>More detail</summary>
+          <p>{ex.details}</p>
+          {#if ex.video}
+            <p><a href={ex.video} target="_blank" rel="noopener">▶ Watch a video</a></p>
+          {/if}
+        </details>
+      </article>
     {/each}
   </details>
 {/if}

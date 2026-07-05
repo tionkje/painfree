@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/svelte';
-import type { Exercise } from '$lib/server/schema';
+import type { Exercise } from '$lib/exercises';
 
 const hoisted = vi.hoisted(() => ({
   submit: null as null | ((arg: unknown) => (cb: unknown) => Promise<void>)
@@ -17,21 +17,22 @@ import Page from './+page.svelte';
 
 function ex(partial: Partial<Exercise> & Pick<Exercise, 'slug'>): Exercise {
   return {
-    id: 1,
     name: partial.slug.toUpperCase(),
     description: `desc ${partial.slug}`,
+    details: `details ${partial.slug}`,
+    image: `/exercises/${partial.slug}.svg`,
     scheme: '1',
     holdSeconds: 1,
     perSide: false,
-    sortOrder: 1,
     ...partial
   };
 }
 
-// One single-side exercise (2s hold) + one per-side exercise => 3 holds total.
+// One single-side exercise (2s hold, with a video) + one per-side exercise
+// (no video) => 3 holds total and both video branches exercised.
 const program: Exercise[] = [
-  ex({ slug: 'a', holdSeconds: 2, perSide: false }),
-  ex({ slug: 'b', id: 2, holdSeconds: 1, perSide: true, sortOrder: 2 })
+  ex({ slug: 'a', holdSeconds: 2, perSide: false, video: 'https://youtu.be/demo' }),
+  ex({ slug: 'b', holdSeconds: 1, perSide: true })
 ];
 
 describe('workout page (brittle component UI - safe to skip)', () => {
@@ -52,6 +53,10 @@ describe('workout page (brittle component UI - safe to skip)', () => {
     expect(screen.getByText('Hold 1 of 3')).toBeInTheDocument();
     // per-side label present in instructions
     expect(screen.getByText(/each side/)).toBeInTheDocument();
+    // each exercise has a visual + an expandable detail; the one with a video links out
+    expect(screen.getAllByRole('img')).toHaveLength(2);
+    expect(screen.getAllByText('More detail')).toHaveLength(2);
+    expect(screen.getByRole('link', { name: /Watch a video/ })).toBeInTheDocument();
   });
 
   test('start -> tick to zero beeps, vibrates and advances', async () => {

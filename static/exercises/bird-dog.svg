@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 120" role="img" aria-label="Bird dog: on hands and knees, opposite arm and leg extended level with the flat back">
+  <g fill="none" stroke="#888" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+    <line x1="15" y1="100" x2="225" y2="100" stroke-width="2" stroke-dasharray="4 5"/>
+    <circle cx="70" cy="52" r="10"/>
+    <path d="M80 56 L150 60"/>
+    <path d="M150 60 L150 100"/>
+    <path d="M95 58 L80 100"/>
+    <path d="M78 54 L30 40"/>
+    <path d="M150 62 L210 46"/>
+  </g>
+  <text x="120" y="18" fill="#888" font-family="sans-serif" font-size="12" text-anchor="middle">Bird Dog</text>
+</svg>
