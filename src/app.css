@@ -1,0 +1,13 @@
+.theme-toggle {
+	padding: 0.25rem 0.6rem;
+	line-height: 1;
+}
+
+/* Big central timer readout on the workout page. */
+.timer {
+	font-size: clamp(4rem, 20vw, 9rem);
+	font-weight: 700;
+	text-align: center;
+	font-variant-numeric: tabular-nums;
+	margin: 0;
+}
