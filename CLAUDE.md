@@ -21,12 +21,21 @@ SvelteKit (adapter-node) · SQLite + Drizzle · Pino · Zod (startup env validat
 
 ## Commands
 
-- `pnpm dev` · `pnpm check` · `pnpm test` · `pnpm build && pnpm start`
+- `pnpm dev` · `pnpm build && pnpm start`
+- `pnpm check` (typecheck) · `pnpm lint` · `pnpm format` · `pnpm format:check`
+- `pnpm test` · `pnpm test:coverage` (enforces thresholds)
 - `pnpm db:generate` — new migration after editing `schema.ts`
+
+## Quality gates
+
+- **Pre-commit** (husky + lint-staged): eslint --fix + prettier on staged files, then `check` + `test`.
+- **CI** runs format/lint/typecheck/coverage on every PR + push to `main` (and tags), then builds the image.
+- **Coverage**: 100% statements/functions/lines everywhere and 100% branches on all `.ts`. Svelte components can't reach 100% branches (the compiler injects phantom branches on text interpolations), so `src/**/*.svelte` branches are capped in `vite.config.ts`.
+- Component/UI tests are **brittle by nature** — each lives in its own `*.svelte.test.ts` inside a `describe('… brittle … safe to skip')`, so flip to `describe.skip` if they get costly.
 
 ## Deploy
 
-CI (`.github/workflows/ci.yml`): check+test → build/push `ghcr.io/tionkje/painfree:latest` on push to `main`.
+CI (`.github/workflows/ci.yml`): gates → build/push `ghcr.io/tionkje/painfree:latest` on push to `main`.
 Prod: omv `~/painfree`, port 3002, behind Caddy at https://painfree.omv.deknudtcallens.be. Update: `docker compose pull && up -d`.
 
 ## Gotchas
