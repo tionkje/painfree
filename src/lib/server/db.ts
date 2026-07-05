@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
@@ -7,8 +7,8 @@ import { env } from './env';
 import { logger } from './logger';
 import * as schema from './schema';
 
-const dir = dirname(env.DATABASE_PATH);
-if (dir && !existsSync(dir)) mkdirSync(dir, { recursive: true });
+// recursive is idempotent — no need to check existence first.
+mkdirSync(dirname(env.DATABASE_PATH), { recursive: true });
 
 const sqlite = new Database(env.DATABASE_PATH);
 sqlite.pragma('journal_mode = WAL');

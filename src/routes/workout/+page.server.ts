@@ -5,13 +5,13 @@ import { logger } from '$lib/server/logger';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async () => {
-	return { exercises };
+  return { exercises };
 };
 
 export const actions: Actions = {
-	complete: async () => {
-		db.insert(sessions).values({ completedAt: new Date() }).run();
-		logger.info('workout session completed');
-		return { completed: true };
-	}
+  complete: async () => {
+    db.insert(sessions).values({ completedAt: new Date() }).run();
+    logger.info('workout session completed');
+    return { completed: true };
+  }
 };

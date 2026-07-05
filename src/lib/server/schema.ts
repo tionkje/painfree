@@ -4,8 +4,8 @@ import { sqliteTable, integer } from 'drizzle-orm/sqlite-core';
 
 // One completed daily workout session. History + streak are derived from these.
 export const sessions = sqliteTable('sessions', {
-	id: integer('id').primaryKey({ autoIncrement: true }),
-	completedAt: integer('completed_at', { mode: 'timestamp_ms' }).notNull()
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  completedAt: integer('completed_at', { mode: 'timestamp_ms' }).notNull()
 });
 
 export type Session = typeof sessions.$inferSelect;

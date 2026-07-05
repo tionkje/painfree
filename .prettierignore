@@ -1,0 +1,6 @@
+.svelte-kit
+build
+node_modules
+drizzle
+pnpm-lock.yaml
+coverage
