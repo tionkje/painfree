@@ -13,9 +13,13 @@ export type Exercise = {
   image: string;
   // Optional link to a video explaining the exercise.
   video?: string;
+  // 'hold' = each rep is a timed hold (holdSeconds); 'reps' = each rep is a
+  // tap-to-count movement, no timer. Completion is tracked the same way for both.
+  mode: 'hold' | 'reps';
   // Reps per set, e.g. "6,4,2" for the McGill reverse pyramid.
   scheme: string;
-  holdSeconds: number;
+  // Seconds per hold — only meaningful when mode === 'hold'.
+  holdSeconds?: number;
   // true = performed on each side (left/right).
   perSide: boolean;
 };
@@ -32,6 +36,7 @@ export const exercises: Exercise[] = [
       'Place both hands palm-down under the lumbar arch to keep the lower back in a neutral position — never flatten it to the floor. One leg is bent (foot flat), the other stays straight. Brace the abdominals, then lift the head, neck and shoulders as one rigid unit only a few centimetres off the floor; the movement is tiny. Keep the chin tucked and eyes on the ceiling so the neck does not crane. Breathe normally during the hold. Alternate the bent knee between sets.',
     image: '/exercises/curl-up.svg',
     video: 'https://www.youtube.com/results?search_query=mcgill+modified+curl+up',
+    mode: 'hold',
     scheme: '6,4,2',
     holdSeconds: 10,
     perSide: false
@@ -45,6 +50,7 @@ export const exercises: Exercise[] = [
       'Lie on your side with the supporting elbow directly under the shoulder. Beginners bend the knees and support on knees + forearm; the harder version stacks the feet and supports on the feet. Brace the whole trunk and lift the hips until the body forms a straight line from head to knees (or feet) — no sagging and no piking up. Keep the top hand on the opposite shoulder or hip. Hold, lower under control, then switch sides.',
     image: '/exercises/side-plank.svg',
     video: 'https://www.youtube.com/results?search_query=mcgill+side+plank+side+bridge',
+    mode: 'hold',
     scheme: '6,4,2',
     holdSeconds: 10,
     perSide: true
@@ -58,6 +64,7 @@ export const exercises: Exercise[] = [
       'Start on hands and knees with hands under shoulders and knees under hips, back flat like a table. Brace the core, then extend one arm forwards and the opposite leg backwards until both are parallel to the floor. Keep the hips and shoulders square — do not let the pelvis rotate or the low back sag. Reach through the fingertips and the heel. Return to the start under control (some sweep the elbow to the knee between reps), then switch to the other diagonal.',
     image: '/exercises/bird-dog.svg',
     video: 'https://www.youtube.com/results?search_query=mcgill+bird+dog',
+    mode: 'hold',
     scheme: '6,4,2',
     holdSeconds: 10,
     perSide: true

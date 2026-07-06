@@ -1,14 +1,16 @@
 <script lang="ts">
   import { untrack } from 'svelte';
+  import { SvelteSet } from 'svelte/reactivity';
   import { enhance } from '$app/forms';
   import type { Exercise } from '$lib/exercises';
   import type { PageData } from './$types';
 
   let { data }: { data: PageData } = $props();
 
-  type Step = { exercise: string; label: string; hold: number };
+  // hold === null means a tap-to-count rep (no timer); a number is a timed hold.
+  type Step = { slug: string; exercise: string; label: string; hold: number | null };
 
-  // Flatten the program into a flat list of timed holds.
+  // Flatten the program into a flat list of units (one per rep/hold/side).
   function buildSteps(list: Exercise[]): Step[] {
     const steps: Step[] = [];
     for (const ex of list) {
@@ -20,8 +22,13 @@
           for (let r = 1; r <= reps; r++) {
             const parts = [`Set ${i + 1}/${nsets}`];
             if (side) parts.push(side);
-            parts.push(`hold ${r}/${reps}`);
-            steps.push({ exercise: ex.name, label: parts.join(' · '), hold: ex.holdSeconds });
+            parts.push(ex.mode === 'hold' ? `hold ${r}/${reps}` : `rep ${r}/${reps}`);
+            steps.push({
+              slug: ex.slug,
+              exercise: ex.name,
+              label: parts.join(' · '),
+              hold: ex.mode === 'hold' ? (ex.holdSeconds ?? 0) : null
+            });
           }
         }
       });
@@ -36,9 +43,29 @@
   let remaining = $state(steps[0]?.hold ?? 0);
   let running = $state(false);
   let done = $state(false);
+  // Indices of units the user actually finished (timer hit zero, or tapped Done).
+  // Skipping past a unit leaves it out, reducing that exercise's completeness.
+  const completed = new SvelteSet<number>();
   let timer: ReturnType<typeof setInterval> | null = null;
 
   const step = $derived(steps[index]);
+
+  // Per-exercise completion, posted to the server on finish.
+  const completion = $derived(
+    data.exercises.map((ex) => {
+      const idxs = steps.map((s, i) => (s.slug === ex.slug ? i : -1)).filter((i) => i >= 0);
+      return {
+        slug: ex.slug,
+        unit: ex.mode === 'hold' ? 'hold' : 'rep',
+        target: idxs.length,
+        completed: idxs.filter((i) => completed.has(i)).length
+      };
+    })
+  );
+
+  function markDone() {
+    completed.add(index);
+  }
 
   function beep() {
     try {
@@ -65,6 +92,7 @@
     remaining -= 1;
     if (remaining <= 0) {
       beep();
+      markDone();
       stop();
       next();
     }
@@ -75,6 +103,12 @@
     timer = setInterval(tick, 1000);
   }
 
+  // Reps have no timer: tapping Done counts the rep and advances.
+  function repDone() {
+    markDone();
+    next();
+  }
+
   function goto(i: number) {
     stop();
     if (i >= steps.length) {
@@ -82,7 +116,7 @@
       return;
     }
     index = Math.max(0, i);
-    remaining = steps[index].hold;
+    remaining = steps[index].hold ?? 0;
   }
 
   const next = () => goto(index + 1);
@@ -105,6 +139,7 @@
           else await update();
         }}
     >
+      <input type="hidden" name="completion" value={JSON.stringify(completion)} />
       <button type="submit">Log it & view history</button>
     </form>
   </article>
@@ -115,11 +150,17 @@
       <p>{step.label}</p>
     </hgroup>
 
-    <p class="timer" class:running>{remaining}</p>
-    <progress value={step.hold - remaining} max={step.hold}></progress>
+    {#if step.hold === null}
+      <p class="timer">✓</p>
+    {:else}
+      <p class="timer" class:running>{remaining}</p>
+      <progress value={step.hold - remaining} max={step.hold}></progress>
+    {/if}
 
     <div class="grid">
-      {#if running}
+      {#if step.hold === null}
+        <button onclick={repDone}>Done ✓</button>
+      {:else if running}
         <button class="secondary" onclick={stop}>Pause</button>
       {:else}
         <button onclick={start}>Start hold</button>
@@ -129,7 +170,7 @@
     <button class="outline secondary" onclick={back} disabled={index === 0}>← Back</button>
 
     <footer>
-      <small>Hold {index + 1} of {steps.length}</small>
+      <small>Unit {index + 1} of {steps.length}</small>
       <progress value={index} max={steps.length}></progress>
     </footer>
   </article>
@@ -140,7 +181,11 @@
       <article>
         <hgroup>
           <h3 style="margin-bottom:0">{ex.name}</h3>
-          <p>{ex.scheme}{ex.perSide ? ', each side' : ''}, {ex.holdSeconds}s holds</p>
+          <p>
+            {ex.scheme}{ex.perSide ? ', each side' : ''}{ex.mode === 'hold'
+              ? `, ${ex.holdSeconds}s holds`
+              : ', reps'}
+          </p>
         </hgroup>
         <img src={ex.image} alt="How to perform the {ex.name}" style="max-width:100%" />
         <p>{ex.description}</p>

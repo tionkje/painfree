@@ -21,6 +21,7 @@ function ex(partial: Partial<Exercise> & Pick<Exercise, 'slug'>): Exercise {
     description: `desc ${partial.slug}`,
     details: `details ${partial.slug}`,
     image: `/exercises/${partial.slug}.svg`,
+    mode: 'hold',
     scheme: '1',
     holdSeconds: 1,
     perSide: false,
@@ -50,7 +51,7 @@ describe('workout page (brittle component UI - safe to skip)', () => {
 
   test('expands the program into per-side holds and shows instructions', () => {
     render(Page, { data: { exercises: program } });
-    expect(screen.getByText('Hold 1 of 3')).toBeInTheDocument();
+    expect(screen.getByText('Unit 1 of 3')).toBeInTheDocument();
     // per-side label present in instructions
     expect(screen.getByText(/each side/)).toBeInTheDocument();
     // each exercise has a visual + an expandable detail; the one with a video links out
@@ -79,13 +80,13 @@ describe('workout page (brittle component UI - safe to skip)', () => {
     // First tick: 2s -> 1s, still holding (no beep yet).
     await vi.advanceTimersByTimeAsync(1000);
     expect(oscStart).not.toHaveBeenCalled();
-    expect(screen.getByText('Hold 1 of 3')).toBeInTheDocument();
+    expect(screen.getByText('Unit 1 of 3')).toBeInTheDocument();
 
     // Second tick: hits zero -> beep, vibrate, advance.
     await vi.advanceTimersByTimeAsync(1000);
     expect(oscStart).toHaveBeenCalled();
     expect(vibrate).toHaveBeenCalledWith(200);
-    expect(screen.getByText('Hold 2 of 3')).toBeInTheDocument();
+    expect(screen.getByText('Unit 2 of 3')).toBeInTheDocument();
   });
 
   test('beep survives a blocked AudioContext and a missing vibrate', async () => {
@@ -117,11 +118,11 @@ describe('workout page (brittle component UI - safe to skip)', () => {
     expect(back).toBeDisabled();
 
     await fireEvent.click(screen.getByRole('button', { name: 'Skip →' }));
-    expect(screen.getByText('Hold 2 of 3')).toBeInTheDocument();
+    expect(screen.getByText('Unit 2 of 3')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '← Back' })).toBeEnabled();
 
     await fireEvent.click(screen.getByRole('button', { name: '← Back' }));
-    expect(screen.getByText('Hold 1 of 3')).toBeInTheDocument();
+    expect(screen.getByText('Unit 1 of 3')).toBeInTheDocument();
 
     await fireEvent.click(screen.getByRole('button', { name: 'Skip →' }));
     await fireEvent.click(screen.getByRole('button', { name: 'Skip →' }));
@@ -144,5 +145,20 @@ describe('workout page (brittle component UI - safe to skip)', () => {
 
     await callback({ result: { type: 'failure' }, update });
     expect(update).toHaveBeenCalled();
+  });
+
+  test('reps mode counts with a Done button instead of a timer', async () => {
+    const reps: Exercise[] = [ex({ slug: 'r', mode: 'reps', scheme: '2', holdSeconds: undefined })];
+    render(Page, { data: { exercises: reps } });
+    // No timer controls; a rep is completed by tapping Done.
+    expect(screen.getByText(/rep 1\/2/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Start hold' })).not.toBeInTheDocument();
+    // Instructions show a reps label, not a holds label.
+    expect(screen.getByText(/, reps$/)).toBeInTheDocument();
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Done ✓' }));
+    expect(screen.getByText(/rep 2\/2/)).toBeInTheDocument();
+    await fireEvent.click(screen.getByRole('button', { name: 'Done ✓' }));
+    expect(screen.getByText(/Session complete/)).toBeInTheDocument();
   });
 });
