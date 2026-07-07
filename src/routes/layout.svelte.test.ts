@@ -1,14 +1,18 @@
-import { describe, expect, test, vi } from 'vitest';
+import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { createRawSnippet } from 'svelte';
 import { render, screen, fireEvent } from '@testing-library/svelte';
 
 vi.mock('$app/state', () => ({ page: { url: { pathname: '/' } } }));
+vi.mock('$lib/client/sessions.svelte', () => ({ scheduleSync: vi.fn(() => Promise.resolve()) }));
 
 import Layout from './+layout.svelte';
+import { scheduleSync } from '$lib/client/sessions.svelte';
 
 const children = createRawSnippet(() => ({ render: () => '<span>page content</span>' }));
 
 describe('layout (brittle component UI - safe to skip)', () => {
+  beforeEach(() => vi.mocked(scheduleSync).mockClear());
+
   test('renders nav with current-page marker and toggles to dark', async () => {
     render(Layout, { children });
     expect(screen.getByText('page content')).toBeInTheDocument();
@@ -42,5 +46,12 @@ describe('layout (brittle component UI - safe to skip)', () => {
     render(Layout, { children });
     await fireEvent.click(screen.getByRole('button', { name: 'Toggle theme' }));
     expect(localStorage.getItem('theme')).toBe('light');
+  });
+
+  test('syncs on mount and again when connectivity returns', () => {
+    render(Layout, { children });
+    expect(scheduleSync).toHaveBeenCalledTimes(1);
+    window.dispatchEvent(new Event('online'));
+    expect(scheduleSync).toHaveBeenCalledTimes(2);
   });
 });

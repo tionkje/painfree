@@ -1,10 +1,21 @@
 <script lang="ts">
   import '@picocss/pico/css/pico.min.css';
   import '../app.css';
+  import { onMount } from 'svelte';
   import { page } from '$app/state';
   import { browser } from '$app/environment';
+  import { scheduleSync } from '$lib/client/sessions.svelte';
 
   let { children } = $props();
+
+  // Sync on boot (picks up sessions logged on other devices) and whenever
+  // connectivity returns. No polling — a page reload is the refresh.
+  onMount(() => {
+    void scheduleSync();
+    const onOnline = () => void scheduleSync();
+    window.addEventListener('online', onOnline);
+    return () => window.removeEventListener('online', onOnline);
+  });
 
   // Initialised from the saved theme on the client; toggleTheme reassigns it
   // (writable $derived). null => follow the OS preference (Pico's default).

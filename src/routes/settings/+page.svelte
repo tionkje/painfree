@@ -1,7 +1,36 @@
 <script lang="ts">
-  import { enhance } from '$app/forms';
-  import type { PageData } from './$types';
-  let { data }: { data: PageData } = $props();
+  import {
+    orderedLive,
+    editCompletedAt,
+    deleteSession,
+    backfill
+  } from '$lib/client/sessions.svelte';
+  import { timers, setTimers } from '$lib/client/settings.svelte';
+  import { toLocalInput } from '$lib/datetime';
+
+  const rows = $derived(
+    orderedLive().map((s) => ({ uuid: s.uuid, value: toLocalInput(new Date(s.completedAt)) }))
+  );
+
+  // Prefilled with "now" for the backfill form.
+  let newDate = $state(toLocalInput(new Date()));
+
+  // Local copies so the inputs are editable before saving.
+  let restSeconds = $state(timers.restSeconds);
+  let repositionSeconds = $state(timers.repositionSeconds);
+
+  function saveTimers() {
+    setTimers({ restSeconds, repositionSeconds });
+  }
+  function save(uuid: string, value: string) {
+    editCompletedAt(uuid, new Date(value));
+  }
+  function remove(uuid: string) {
+    if (confirm('Delete this session?')) deleteSession(uuid);
+  }
+  function add() {
+    backfill(new Date(newDate));
+  }
 </script>
 
 <hgroup>
@@ -10,38 +39,36 @@
 </hgroup>
 
 <article>
-  <h2>Timers</h2>
-  <form method="POST" action="?/timers" use:enhance>
-    <div class="grid">
-      <label>
-        Rest between holds (s)
-        <input
-          type="number"
-          name="restSeconds"
-          min="0"
-          max="600"
-          required
-          value={data.settings.restSeconds}
-        />
-      </label>
-      <label>
-        Repositioning time (s)
-        <input
-          type="number"
-          name="repositionSeconds"
-          min="0"
-          max="600"
-          required
-          value={data.settings.repositionSeconds}
-        />
-      </label>
-    </div>
-    <button type="submit">Save timers</button>
-  </form>
+  <h2 style="margin-top:0">Timers</h2>
+  <div class="grid">
+    <label>
+      Rest between holds (s)
+      <input type="number" name="restSeconds" min="0" max="600" bind:value={restSeconds} />
+    </label>
+    <label>
+      Repositioning time (s)
+      <input
+        type="number"
+        name="repositionSeconds"
+        min="0"
+        max="600"
+        bind:value={repositionSeconds}
+      />
+    </label>
+  </div>
+  <button onclick={saveTimers}>Save timers</button>
+</article>
+
+<article>
+  <h2 style="margin-top:0">Add a past session</h2>
+  <div class="grid">
+    <input type="datetime-local" name="newDate" bind:value={newDate} />
+    <button onclick={add}>Add</button>
+  </div>
 </article>
 
 <h2>Sessions</h2>
-{#if data.sessions.length === 0}
+{#if rows.length === 0}
   <p>No sessions yet. <a href="/workout">Do your first workout.</a></p>
 {:else}
   <table>
@@ -49,30 +76,17 @@
       <tr><th>Completed</th><th></th></tr>
     </thead>
     <tbody>
-      {#each data.sessions as s (s.id)}
+      {#each rows as r (r.uuid)}
         <tr>
           <td>
-            <form method="POST" action="?/update" use:enhance style="margin:0">
-              <input type="hidden" name="id" value={s.id} />
-              <div class="grid">
-                <input type="datetime-local" name="completedAt" value={s.completedAt} />
-                <button type="submit">Save</button>
-              </div>
-            </form>
+            <input
+              type="datetime-local"
+              value={r.value}
+              onchange={(e) => save(r.uuid, e.currentTarget.value)}
+            />
           </td>
           <td>
-            <form
-              method="POST"
-              action="?/delete"
-              use:enhance
-              style="margin:0"
-              onsubmit={(e) => {
-                if (!confirm('Delete this session?')) e.preventDefault();
-              }}
-            >
-              <input type="hidden" name="id" value={s.id} />
-              <button type="submit" class="outline secondary">Delete</button>
-            </form>
+            <button class="outline secondary" onclick={() => remove(r.uuid)}>Delete</button>
           </td>
         </tr>
       {/each}

@@ -1,11 +1,11 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { SvelteSet } from 'svelte/reactivity';
-  import { enhance } from '$app/forms';
-  import type { Exercise } from '$lib/exercises';
-  import type { PageData } from './$types';
-
-  let { data }: { data: PageData } = $props();
+  import { goto as navigate } from '$app/navigation';
+  import { exercises, type Exercise } from '$lib/exercises';
+  import { logSession } from '$lib/client/sessions.svelte';
+  import { timers } from '$lib/client/settings.svelte';
+  import type { CompletionEntry } from '$lib/sync';
 
   // hold === null means a tap-to-count rep (no timer); a number is a timed hold.
   // Pause steps (Rest/Reposition) have no slug — they belong to no exercise.
@@ -58,9 +58,7 @@
   }
 
   // The program is static per page load; compute the step list once.
-  const steps = untrack(() =>
-    buildSteps(data.exercises, data.settings.restSeconds, data.settings.repositionSeconds)
-  );
+  const steps = untrack(() => buildSteps(exercises, timers.restSeconds, timers.repositionSeconds));
 
   let index = $state(0);
   let remaining = $state(steps[0]?.hold ?? 0);
@@ -73,10 +71,10 @@
 
   const step = $derived(steps[index]);
 
-  // Per-exercise completion, posted to the server on finish. Pause steps have
-  // no slug, so they never count towards any exercise.
-  const completion = $derived(
-    data.exercises.map((ex) => {
+  // Per-exercise completion, logged to the local store on finish. Pause steps
+  // have no slug, so they never count towards any exercise.
+  const completion = $derived<CompletionEntry[]>(
+    exercises.map((ex) => {
       const idxs = steps.map((s, i) => (s.slug === ex.slug ? i : -1)).filter((i) => i >= 0);
       return {
         slug: ex.slug,
@@ -86,6 +84,13 @@
       };
     })
   );
+
+  // Local-first: write the session to the store (which syncs in the background)
+  // and go straight to history — no network round-trip on the completion path.
+  function finish() {
+    logSession(completion);
+    void navigate('/history');
+  }
 
   function markDone() {
     completed.add(index);
@@ -159,18 +164,7 @@
 {:else if done}
   <article style="text-align:center">
     <h2>🎉 Session complete</h2>
-    <form
-      method="POST"
-      action="?/complete"
-      use:enhance={() =>
-        async ({ result, update }) => {
-          if (result.type === 'success') window.location.href = '/history';
-          else await update();
-        }}
-    >
-      <input type="hidden" name="completion" value={JSON.stringify(completion)} />
-      <button type="submit">Log it & view history</button>
-    </form>
+    <button onclick={finish}>Log it & view history</button>
   </article>
 {:else}
   <article>
@@ -206,7 +200,7 @@
 
   <details>
     <summary>Exercise instructions</summary>
-    {#each data.exercises as ex (ex.slug)}
+    {#each exercises as ex (ex.slug)}
       <article>
         <hgroup>
           <h3 style="margin-bottom:0">{ex.name}</h3>
