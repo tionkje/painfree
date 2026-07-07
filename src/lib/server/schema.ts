@@ -24,5 +24,15 @@ export const sessionExercises = sqliteTable('session_exercises', {
   completedUnits: integer('completed_units').notNull()
 });
 
+// App-wide timer settings: a single row (id = 1), seeded at boot, edited on /settings.
+export const settings = sqliteTable('settings', {
+  id: integer('id').primaryKey(),
+  // Pause between holds in the same position.
+  restSeconds: integer('rest_seconds').notNull().default(5),
+  // Pause when the next hold needs a position change (other exercise or side).
+  repositionSeconds: integer('reposition_seconds').notNull().default(15)
+});
+
 export type Session = typeof sessions.$inferSelect;
 export type SessionExercise = typeof sessionExercises.$inferSelect;
+export type Settings = typeof settings.$inferSelect;

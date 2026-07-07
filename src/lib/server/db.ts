@@ -17,3 +17,6 @@ export const db = drizzle(sqlite, { schema });
 
 migrate(db, { migrationsFolder: './drizzle' });
 logger.info({ db: env.DATABASE_PATH }, 'migrations applied');
+
+// Ensure the single settings row exists (defaults come from the schema).
+db.insert(schema.settings).values({ id: 1 }).onConflictDoNothing().run();

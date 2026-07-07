@@ -1,13 +1,14 @@
 import { fail } from '@sveltejs/kit';
 import { z } from 'zod';
 import { db } from '$lib/server/db';
-import { sessions, sessionExercises } from '$lib/server/schema';
+import { sessions, sessionExercises, settings } from '$lib/server/schema';
 import { exercises } from '$lib/exercises';
 import { logger } from '$lib/server/logger';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async () => {
-  return { exercises };
+  // The settings row is seeded at boot, so it always exists.
+  return { exercises, settings: db.select().from(settings).get()! };
 };
 
 // Per-exercise completion posted by the client as a JSON string. `completed`

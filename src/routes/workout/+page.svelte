@@ -8,11 +8,15 @@
   let { data }: { data: PageData } = $props();
 
   // hold === null means a tap-to-count rep (no timer); a number is a timed hold.
-  type Step = { slug: string; exercise: string; label: string; hold: number | null };
+  // Pause steps (Rest/Reposition) have no slug — they belong to no exercise.
+  type Step = { slug: string | null; exercise: string; label: string; hold: number | null };
 
-  // Flatten the program into a flat list of units (one per rep/hold/side).
-  function buildSteps(list: Exercise[]): Step[] {
-    const steps: Step[] = [];
+  // Flatten the program into a flat list of units (one per rep/hold/side), with
+  // a rest step between holds in the same position and a reposition step when
+  // the next hold is another exercise or side. Reps are tap-paced, so no pause
+  // is inserted before them. Zero-length pauses are skipped.
+  function buildSteps(list: Exercise[], rest: number, reposition: number): Step[] {
+    const units: (Step & { pos: string })[] = [];
     for (const ex of list) {
       const setReps = ex.scheme.split(',').map((n) => parseInt(n.trim(), 10));
       const nsets = setReps.length;
@@ -23,21 +27,40 @@
             const parts = [`Set ${i + 1}/${nsets}`];
             if (side) parts.push(side);
             parts.push(ex.mode === 'hold' ? `hold ${r}/${reps}` : `rep ${r}/${reps}`);
-            steps.push({
+            units.push({
               slug: ex.slug,
               exercise: ex.name,
               label: parts.join(' · '),
-              hold: ex.mode === 'hold' ? (ex.holdSeconds ?? 0) : null
+              hold: ex.mode === 'hold' ? (ex.holdSeconds ?? 0) : null,
+              pos: `${ex.slug}/${side}`
             });
           }
         }
       });
     }
+    const steps: Step[] = [];
+    units.forEach((u, i) => {
+      if (i > 0 && u.hold !== null) {
+        const move = u.pos !== units[i - 1].pos;
+        const seconds = move ? reposition : rest;
+        if (seconds > 0) {
+          steps.push({
+            slug: null,
+            exercise: move ? 'Reposition' : 'Rest',
+            label: `next: ${u.exercise} · ${u.label}`,
+            hold: seconds
+          });
+        }
+      }
+      steps.push(u);
+    });
     return steps;
   }
 
   // The program is static per page load; compute the step list once.
-  const steps = untrack(() => buildSteps(data.exercises));
+  const steps = untrack(() =>
+    buildSteps(data.exercises, data.settings.restSeconds, data.settings.repositionSeconds)
+  );
 
   let index = $state(0);
   let remaining = $state(steps[0]?.hold ?? 0);
@@ -50,7 +73,8 @@
 
   const step = $derived(steps[index]);
 
-  // Per-exercise completion, posted to the server on finish.
+  // Per-exercise completion, posted to the server on finish. Pause steps have
+  // no slug, so they never count towards any exercise.
   const completion = $derived(
     data.exercises.map((ex) => {
       const idxs = steps.map((s, i) => (s.slug === ex.slug ? i : -1)).filter((i) => i >= 0);
@@ -88,14 +112,14 @@
     running = false;
   }
 
+  // One start runs the whole workout: hitting zero beeps and rolls straight
+  // into the next step; the timer only stops on pause, a rep, or completion.
   function tick() {
     remaining -= 1;
-    if (remaining <= 0) {
-      beep();
-      markDone();
-      stop();
-      next();
-    }
+    if (remaining > 0) return;
+    beep();
+    markDone();
+    next();
   }
 
   function start() {
@@ -103,20 +127,25 @@
     timer = setInterval(tick, 1000);
   }
 
-  // Reps have no timer: tapping Done counts the rep and advances.
+  // Reps have no timer: tapping Done counts the rep and advances, resuming the
+  // auto-run when the next step is timed.
   function repDone() {
     markDone();
     next();
+    if (!done && !running && step.hold !== null) start();
   }
 
+  // Manual skip/back keeps a running timer running; landing on a tap-paced rep
+  // halts it until Done is tapped.
   function goto(i: number) {
-    stop();
     if (i >= steps.length) {
+      stop();
       done = true;
       return;
     }
     index = Math.max(0, i);
     remaining = steps[index].hold ?? 0;
+    if (steps[index].hold === null) stop();
   }
 
   const next = () => goto(index + 1);
@@ -163,14 +192,14 @@
       {:else if running}
         <button class="secondary" onclick={stop}>Pause</button>
       {:else}
-        <button onclick={start}>Start hold</button>
+        <button onclick={start}>Start</button>
       {/if}
       <button class="outline" onclick={next}>Skip →</button>
     </div>
     <button class="outline secondary" onclick={back} disabled={index === 0}>← Back</button>
 
     <footer>
-      <small>Unit {index + 1} of {steps.length}</small>
+      <small>Step {index + 1} of {steps.length}</small>
       <progress value={index} max={steps.length}></progress>
     </footer>
   </article>

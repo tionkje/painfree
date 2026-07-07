@@ -6,9 +6,41 @@
 
 <hgroup>
   <h1>Settings</h1>
-  <p>Edit or delete past workout sessions.</p>
+  <p>Workout timers and past sessions.</p>
 </hgroup>
 
+<article>
+  <h2>Timers</h2>
+  <form method="POST" action="?/timers" use:enhance>
+    <div class="grid">
+      <label>
+        Rest between holds (s)
+        <input
+          type="number"
+          name="restSeconds"
+          min="0"
+          max="600"
+          required
+          value={data.settings.restSeconds}
+        />
+      </label>
+      <label>
+        Repositioning time (s)
+        <input
+          type="number"
+          name="repositionSeconds"
+          min="0"
+          max="600"
+          required
+          value={data.settings.repositionSeconds}
+        />
+      </label>
+    </div>
+    <button type="submit">Save timers</button>
+  </form>
+</article>
+
+<h2>Sessions</h2>
 {#if data.sessions.length === 0}
   <p>No sessions yet. <a href="/workout">Do your first workout.</a></p>
 {:else}

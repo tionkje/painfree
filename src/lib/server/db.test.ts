@@ -12,11 +12,15 @@ afterEach(() => {
   vi.resetModules();
 });
 
-test('creates the (nested) db dir and migrates the sessions table', async () => {
+test('creates the (nested) db dir, migrates and seeds the settings row', async () => {
   vi.stubEnv('DATABASE_PATH', tmpDbPath());
   vi.resetModules();
   const { db } = await import('./db');
-  const { sessions } = await import('./schema');
+  const { sessions, settings } = await import('./schema');
   // Migrations ran, so the table exists and is queryable — and starts empty.
   expect(db.select().from(sessions).all()).toEqual([]);
+  // The single settings row is seeded with schema defaults.
+  expect(db.select().from(settings).all()).toEqual([
+    { id: 1, restSeconds: 5, repositionSeconds: 15 }
+  ]);
 });
