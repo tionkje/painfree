@@ -21,6 +21,7 @@ function ex(partial: Partial<Exercise> & Pick<Exercise, 'slug'>): Exercise {
     description: `desc ${partial.slug}`,
     details: `details ${partial.slug}`,
     image: `/exercises/${partial.slug}.svg`,
+    mode: 'hold',
     scheme: '1',
     holdSeconds: 1,
     perSide: false,
@@ -37,8 +38,20 @@ const program: Exercise[] = [
 ];
 const settings = { id: 1, restSeconds: 1, repositionSeconds: 1 };
 
-function renderPage(overrides: Partial<typeof settings> = {}) {
-  return render(Page, { data: { exercises: program, settings: { ...settings, ...overrides } } });
+function renderPage(exercises: Exercise[] = program, overrides: Partial<typeof settings> = {}) {
+  return render(Page, { data: { exercises, settings: { ...settings, ...overrides } } });
+}
+
+function stubAudio() {
+  class FakeAudio {
+    currentTime = 0;
+    destination = {};
+    createOscillator() {
+      return { frequency: { value: 0 }, connect: vi.fn(), start: vi.fn(), stop: vi.fn() };
+    }
+  }
+  vi.stubGlobal('AudioContext', FakeAudio);
+  vi.stubGlobal('navigator', { vibrate: vi.fn() });
 }
 
 describe('workout page (brittle component UI - safe to skip)', () => {
@@ -50,7 +63,7 @@ describe('workout page (brittle component UI - safe to skip)', () => {
   });
 
   test('shows an empty state when there are no exercises', () => {
-    render(Page, { data: { exercises: [], settings } });
+    renderPage([]);
     expect(screen.getByText(/No exercises configured/)).toBeInTheDocument();
   });
 
@@ -66,7 +79,7 @@ describe('workout page (brittle component UI - safe to skip)', () => {
   });
 
   test('zero pause times produce a holds-only program', () => {
-    renderPage({ restSeconds: 0, repositionSeconds: 0 });
+    renderPage(program, { restSeconds: 0, repositionSeconds: 0 });
     expect(screen.getByText('Step 1 of 4')).toBeInTheDocument();
   });
 
@@ -104,6 +117,15 @@ describe('workout page (brittle component UI - safe to skip)', () => {
     // Remaining steps: 1s rest + 2s hold + 1s repo + 1s hold + 1s repo + 1s hold.
     await vi.advanceTimersByTimeAsync(7000);
     expect(screen.getByText(/Session complete/)).toBeInTheDocument();
+
+    // Every unit ran to zero, so completion is full — pauses count for nothing.
+    const payload = JSON.parse(
+      (document.querySelector('input[name="completion"]') as HTMLInputElement).value
+    );
+    expect(payload).toEqual([
+      { slug: 'a', unit: 'hold', target: 2, completed: 2 },
+      { slug: 'b', unit: 'hold', target: 2, completed: 2 }
+    ]);
   });
 
   test('beep survives a blocked AudioContext and a missing vibrate', async () => {
@@ -156,7 +178,7 @@ describe('workout page (brittle component UI - safe to skip)', () => {
   });
 
   test('completing the session redirects on success and updates otherwise', async () => {
-    renderPage({ restSeconds: 0, repositionSeconds: 0 });
+    renderPage(program, { restSeconds: 0, repositionSeconds: 0 });
     for (let i = 0; i < 4; i++) {
       await fireEvent.click(screen.getByRole('button', { name: 'Skip →' }));
     }
@@ -170,5 +192,48 @@ describe('workout page (brittle component UI - safe to skip)', () => {
 
     await callback({ result: { type: 'failure' }, update });
     expect(update).toHaveBeenCalled();
+  });
+
+  test('reps mode counts with a Done button instead of a timer', async () => {
+    const reps: Exercise[] = [ex({ slug: 'r', mode: 'reps', scheme: '2', holdSeconds: undefined })];
+    renderPage(reps);
+    // No timer controls and no pauses — reps are tap-paced.
+    expect(screen.getByText('Step 1 of 2')).toBeInTheDocument();
+    expect(screen.getByText(/rep 1\/2/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Start' })).not.toBeInTheDocument();
+    // Instructions show a reps label, not a holds label.
+    expect(screen.getByText(/, reps$/)).toBeInTheDocument();
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Done ✓' }));
+    expect(screen.getByText(/rep 2\/2/)).toBeInTheDocument();
+    await fireEvent.click(screen.getByRole('button', { name: 'Done ✓' }));
+    expect(screen.getByText(/Session complete/)).toBeInTheDocument();
+  });
+
+  test('auto-run halts on a rep and resumes when Done is tapped', async () => {
+    stubAudio();
+    // Hold -> rep (no pause before a rep) -> reposition -> hold.
+    const mixed: Exercise[] = [
+      ex({ slug: 'h1' }),
+      ex({ slug: 'r', mode: 'reps', holdSeconds: undefined }),
+      ex({ slug: 'h2' })
+    ];
+    renderPage(mixed);
+    expect(screen.getByText('Step 1 of 4')).toBeInTheDocument();
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Start' }));
+    // Hold finishes and the run halts on the tap-paced rep.
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(screen.getByText(/rep 1\/1/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Pause' })).not.toBeInTheDocument();
+
+    // Done resumes the auto-run into the reposition pause.
+    await fireEvent.click(screen.getByRole('button', { name: 'Done ✓' }));
+    expect(screen.getByRole('heading', { name: 'Reposition' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Pause' })).toBeInTheDocument();
+
+    // Reposition then the final hold run out on their own.
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(screen.getByText(/Session complete/)).toBeInTheDocument();
   });
 });

@@ -17,8 +17,9 @@ SvelteKit (adapter-node) · SQLite + Drizzle · Pino · Zod (startup env validat
 
 ## Data model
 
-- The exercise program is **checked in**, not in the DB: `src/lib/exercises.ts` (`scheme` reps-per-set `"6,4,2"`, `holdSeconds`, `perSide`, `description`, `details`, `image`, optional `video`). Visuals are SVGs in `static/exercises/<slug>.svg`. Array order = workout order. Edit the file to change the program.
-- `sessions` — the only DB table. One row per completed workout. Streak/history derived from these.
+- The exercise program is **checked in**, not in the DB: `src/lib/exercises.ts` (`mode` `'hold'|'reps'`, `scheme` reps-per-set `"6,4,2"`, `holdSeconds` (hold mode only), `perSide`, `description`, `details`, `image`, optional `video`). Visuals are SVGs in `static/exercises/<slug>.svg`. Array order = workout order. Edit the file to change the program.
+- `sessions` — one row per completed workout. Streak/history derived from these.
+- `session_exercises` — one row per exercise per session: `exerciseSlug` + `unit` (`hold`/`rep`) + `targetUnits`/`completedUnits` (all snapshots). Completeness = `completed/target`; a session is 100% when every row is full. Snapshotting the slug/unit keeps old history valid when the checked-in program changes.
 
 ## Commands
 

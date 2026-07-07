@@ -1,18 +1,22 @@
 <script lang="ts">
   import { untrack } from 'svelte';
+  import { SvelteSet } from 'svelte/reactivity';
   import { enhance } from '$app/forms';
   import type { Exercise } from '$lib/exercises';
   import type { PageData } from './$types';
 
   let { data }: { data: PageData } = $props();
 
-  type Step = { exercise: string; label: string; seconds: number };
+  // hold === null means a tap-to-count rep (no timer); a number is a timed hold.
+  // Pause steps (Rest/Reposition) have no slug — they belong to no exercise.
+  type Step = { slug: string | null; exercise: string; label: string; hold: number | null };
 
-  // Flatten the program into a flat list of timed holds, with a rest step
-  // between holds in the same position and a reposition step when the next
-  // hold is another exercise or side. Zero-length pauses are skipped.
+  // Flatten the program into a flat list of units (one per rep/hold/side), with
+  // a rest step between holds in the same position and a reposition step when
+  // the next hold is another exercise or side. Reps are tap-paced, so no pause
+  // is inserted before them. Zero-length pauses are skipped.
   function buildSteps(list: Exercise[], rest: number, reposition: number): Step[] {
-    const holds: (Step & { pos: string })[] = [];
+    const units: (Step & { pos: string })[] = [];
     for (const ex of list) {
       const setReps = ex.scheme.split(',').map((n) => parseInt(n.trim(), 10));
       const nsets = setReps.length;
@@ -22,11 +26,12 @@
           for (let r = 1; r <= reps; r++) {
             const parts = [`Set ${i + 1}/${nsets}`];
             if (side) parts.push(side);
-            parts.push(`hold ${r}/${reps}`);
-            holds.push({
+            parts.push(ex.mode === 'hold' ? `hold ${r}/${reps}` : `rep ${r}/${reps}`);
+            units.push({
+              slug: ex.slug,
               exercise: ex.name,
               label: parts.join(' · '),
-              seconds: ex.holdSeconds,
+              hold: ex.mode === 'hold' ? (ex.holdSeconds ?? 0) : null,
               pos: `${ex.slug}/${side}`
             });
           }
@@ -34,19 +39,20 @@
       });
     }
     const steps: Step[] = [];
-    holds.forEach((h, i) => {
-      if (i > 0) {
-        const move = h.pos !== holds[i - 1].pos;
+    units.forEach((u, i) => {
+      if (i > 0 && u.hold !== null) {
+        const move = u.pos !== units[i - 1].pos;
         const seconds = move ? reposition : rest;
         if (seconds > 0) {
           steps.push({
+            slug: null,
             exercise: move ? 'Reposition' : 'Rest',
-            label: `next: ${h.exercise} · ${h.label}`,
-            seconds
+            label: `next: ${u.exercise} · ${u.label}`,
+            hold: seconds
           });
         }
       }
-      steps.push(h);
+      steps.push(u);
     });
     return steps;
   }
@@ -57,12 +63,33 @@
   );
 
   let index = $state(0);
-  let remaining = $state(steps[0]?.seconds ?? 0);
+  let remaining = $state(steps[0]?.hold ?? 0);
   let running = $state(false);
   let done = $state(false);
+  // Indices of units the user actually finished (timer hit zero, or tapped Done).
+  // Skipping past a unit leaves it out, reducing that exercise's completeness.
+  const completed = new SvelteSet<number>();
   let timer: ReturnType<typeof setInterval> | null = null;
 
   const step = $derived(steps[index]);
+
+  // Per-exercise completion, posted to the server on finish. Pause steps have
+  // no slug, so they never count towards any exercise.
+  const completion = $derived(
+    data.exercises.map((ex) => {
+      const idxs = steps.map((s, i) => (s.slug === ex.slug ? i : -1)).filter((i) => i >= 0);
+      return {
+        slug: ex.slug,
+        unit: ex.mode === 'hold' ? 'hold' : 'rep',
+        target: idxs.length,
+        completed: idxs.filter((i) => completed.has(i)).length
+      };
+    })
+  );
+
+  function markDone() {
+    completed.add(index);
+  }
 
   function beep() {
     try {
@@ -86,11 +113,12 @@
   }
 
   // One start runs the whole workout: hitting zero beeps and rolls straight
-  // into the next step; the timer only stops on pause or completion.
+  // into the next step; the timer only stops on pause, a rep, or completion.
   function tick() {
     remaining -= 1;
     if (remaining > 0) return;
     beep();
+    markDone();
     next();
   }
 
@@ -99,7 +127,16 @@
     timer = setInterval(tick, 1000);
   }
 
-  // Manual skip/back keeps the timer running if it was running.
+  // Reps have no timer: tapping Done counts the rep and advances, resuming the
+  // auto-run when the next step is timed.
+  function repDone() {
+    markDone();
+    next();
+    if (!done && !running && step.hold !== null) start();
+  }
+
+  // Manual skip/back keeps a running timer running; landing on a tap-paced rep
+  // halts it until Done is tapped.
   function goto(i: number) {
     if (i >= steps.length) {
       stop();
@@ -107,7 +144,8 @@
       return;
     }
     index = Math.max(0, i);
-    remaining = steps[index].seconds;
+    remaining = steps[index].hold ?? 0;
+    if (steps[index].hold === null) stop();
   }
 
   const next = () => goto(index + 1);
@@ -130,6 +168,7 @@
           else await update();
         }}
     >
+      <input type="hidden" name="completion" value={JSON.stringify(completion)} />
       <button type="submit">Log it & view history</button>
     </form>
   </article>
@@ -140,11 +179,17 @@
       <p>{step.label}</p>
     </hgroup>
 
-    <p class="timer" class:running>{remaining}</p>
-    <progress value={step.seconds - remaining} max={step.seconds}></progress>
+    {#if step.hold === null}
+      <p class="timer">✓</p>
+    {:else}
+      <p class="timer" class:running>{remaining}</p>
+      <progress value={step.hold - remaining} max={step.hold}></progress>
+    {/if}
 
     <div class="grid">
-      {#if running}
+      {#if step.hold === null}
+        <button onclick={repDone}>Done ✓</button>
+      {:else if running}
         <button class="secondary" onclick={stop}>Pause</button>
       {:else}
         <button onclick={start}>Start</button>
@@ -165,7 +210,11 @@
       <article>
         <hgroup>
           <h3 style="margin-bottom:0">{ex.name}</h3>
-          <p>{ex.scheme}{ex.perSide ? ', each side' : ''}, {ex.holdSeconds}s holds</p>
+          <p>
+            {ex.scheme}{ex.perSide ? ', each side' : ''}{ex.mode === 'hold'
+              ? `, ${ex.holdSeconds}s holds`
+              : ', reps'}
+          </p>
         </hgroup>
         <img src={ex.image} alt="How to perform the {ex.name}" style="max-width:100%" />
         <p>{ex.description}</p>

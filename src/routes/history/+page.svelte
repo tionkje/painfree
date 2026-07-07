@@ -22,13 +22,14 @@
 {:else}
   <table>
     <thead>
-      <tr><th>#</th><th>Completed</th></tr>
+      <tr><th>#</th><th>Completed</th><th>Done</th></tr>
     </thead>
     <tbody>
       {#each data.sessions as s, i (s.id)}
         <tr>
           <td>{data.sessions.length - i}</td>
           <td>{fmt.format(new Date(s.completedAt))}</td>
+          <td>{s.percent === null ? '—' : s.percent === 100 ? '🎯 100%' : `${s.percent}%`}</td>
         </tr>
       {/each}
     </tbody>
