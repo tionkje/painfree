@@ -1,6 +1,12 @@
 <script lang="ts">
-  import type { PageData } from './$types';
-  let { data }: { data: PageData } = $props();
+  import { orderedLive } from '$lib/client/sessions.svelte';
+  import { currentStreak, doneToday } from '$lib/streak';
+
+  const live = $derived(orderedLive());
+  const dates = $derived(live.map((s) => new Date(s.completedAt)));
+  const now = new Date();
+  const streak = $derived(currentStreak(dates, now));
+  const done = $derived(doneToday(dates, now));
 </script>
 
 <hgroup>
@@ -8,7 +14,7 @@
   <p>Daily back routine. Do it every day.</p>
 </hgroup>
 
-{#if data.doneToday}
+{#if done}
   <article style="background: var(--pico-ins-color); color: white;">
     <strong>✅ Done today.</strong> Nice — come back tomorrow.
   </article>
@@ -20,11 +26,11 @@
 
 <div class="grid">
   <article>
-    <h2 style="margin:0">🔥 {data.streak}</h2>
+    <h2 style="margin:0">🔥 {streak}</h2>
     <small>day streak</small>
   </article>
   <article>
-    <h2 style="margin:0">{data.total}</h2>
+    <h2 style="margin:0">{live.length}</h2>
     <small>total sessions</small>
   </article>
 </div>

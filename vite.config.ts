@@ -29,7 +29,15 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       include: ['src/**/*.{ts,svelte}'],
-      exclude: ['src/**/*.test.ts', 'src/**/*.svelte.test.ts', 'src/**/*.d.ts'],
+      exclude: [
+        'src/**/*.test.ts',
+        'src/**/*.svelte.test.ts',
+        'src/**/*.d.ts',
+        // The service worker is a config-shaped precache shell that needs a real
+        // SW runtime (caches/self/fetch) to run; its logic lives in tested pure
+        // modules. See docs/offline-first-plan.md.
+        'src/service-worker.ts'
+      ],
       thresholds: {
         // All .ts (logic, server, loads/actions) is fully enforced at 100%.
         'src/**/*.ts': { statements: 100, functions: 100, lines: 100, branches: 100 },
