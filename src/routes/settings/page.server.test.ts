@@ -3,7 +3,10 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { beforeAll, expect, test, vi } from 'vitest';
 
-type SettingsData = { sessions: { id: number; completedAt: string }[] };
+type SettingsData = {
+  sessions: { id: number; completedAt: string }[];
+  settings: { restSeconds: number; repositionSeconds: number };
+};
 
 function post(fields: Record<string, string>) {
   const fd = new FormData();
@@ -26,6 +29,27 @@ test('load maps sessions to datetime-local strings', async () => {
   const data = (await load({} as Parameters<typeof load>[0])) as SettingsData;
   expect(data.sessions).toHaveLength(1);
   expect(data.sessions[0].completedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
+});
+
+test('load returns the seeded timer settings', async () => {
+  const { load } = await import('./+page.server');
+  const data = (await load({} as Parameters<typeof load>[0])) as SettingsData;
+  expect(data.settings).toMatchObject({ restSeconds: 5, repositionSeconds: 15 });
+});
+
+test('timers rejects invalid values', async () => {
+  const { actions } = await import('./+page.server');
+  const res = await actions.timers(post({ restSeconds: '-1', repositionSeconds: '10' }));
+  expect(res).toMatchObject({ status: 400 });
+});
+
+test('timers updates the settings row', async () => {
+  const { load, actions } = await import('./+page.server');
+  const res = await actions.timers(post({ restSeconds: '3', repositionSeconds: '20' }));
+  expect(res).toEqual({ saved: true });
+
+  const data = (await load({} as Parameters<typeof load>[0])) as SettingsData;
+  expect(data.settings).toMatchObject({ restSeconds: 3, repositionSeconds: 20 });
 });
 
 test('update rejects an invalid date', async () => {

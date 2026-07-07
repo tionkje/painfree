@@ -1,11 +1,12 @@
 import { db } from '$lib/server/db';
-import { sessions } from '$lib/server/schema';
+import { sessions, settings } from '$lib/server/schema';
 import { exercises } from '$lib/exercises';
 import { logger } from '$lib/server/logger';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async () => {
-  return { exercises };
+  // The settings row is seeded at boot, so it always exists.
+  return { exercises, settings: db.select().from(settings).get()! };
 };
 
 export const actions: Actions = {

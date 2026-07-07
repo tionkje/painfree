@@ -6,11 +6,13 @@
 
   let { data }: { data: PageData } = $props();
 
-  type Step = { exercise: string; label: string; hold: number };
+  type Step = { exercise: string; label: string; seconds: number };
 
-  // Flatten the program into a flat list of timed holds.
-  function buildSteps(list: Exercise[]): Step[] {
-    const steps: Step[] = [];
+  // Flatten the program into a flat list of timed holds, with a rest step
+  // between holds in the same position and a reposition step when the next
+  // hold is another exercise or side. Zero-length pauses are skipped.
+  function buildSteps(list: Exercise[], rest: number, reposition: number): Step[] {
+    const holds: (Step & { pos: string })[] = [];
     for (const ex of list) {
       const setReps = ex.scheme.split(',').map((n) => parseInt(n.trim(), 10));
       const nsets = setReps.length;
@@ -21,19 +23,41 @@
             const parts = [`Set ${i + 1}/${nsets}`];
             if (side) parts.push(side);
             parts.push(`hold ${r}/${reps}`);
-            steps.push({ exercise: ex.name, label: parts.join(' · '), hold: ex.holdSeconds });
+            holds.push({
+              exercise: ex.name,
+              label: parts.join(' · '),
+              seconds: ex.holdSeconds,
+              pos: `${ex.slug}/${side}`
+            });
           }
         }
       });
     }
+    const steps: Step[] = [];
+    holds.forEach((h, i) => {
+      if (i > 0) {
+        const move = h.pos !== holds[i - 1].pos;
+        const seconds = move ? reposition : rest;
+        if (seconds > 0) {
+          steps.push({
+            exercise: move ? 'Reposition' : 'Rest',
+            label: `next: ${h.exercise} · ${h.label}`,
+            seconds
+          });
+        }
+      }
+      steps.push(h);
+    });
     return steps;
   }
 
   // The program is static per page load; compute the step list once.
-  const steps = untrack(() => buildSteps(data.exercises));
+  const steps = untrack(() =>
+    buildSteps(data.exercises, data.settings.restSeconds, data.settings.repositionSeconds)
+  );
 
   let index = $state(0);
-  let remaining = $state(steps[0]?.hold ?? 0);
+  let remaining = $state(steps[0]?.seconds ?? 0);
   let running = $state(false);
   let done = $state(false);
   let timer: ReturnType<typeof setInterval> | null = null;
@@ -61,13 +85,13 @@
     running = false;
   }
 
+  // One start runs the whole workout: hitting zero beeps and rolls straight
+  // into the next step; the timer only stops on pause or completion.
   function tick() {
     remaining -= 1;
-    if (remaining <= 0) {
-      beep();
-      stop();
-      next();
-    }
+    if (remaining > 0) return;
+    beep();
+    next();
   }
 
   function start() {
@@ -75,14 +99,15 @@
     timer = setInterval(tick, 1000);
   }
 
+  // Manual skip/back keeps the timer running if it was running.
   function goto(i: number) {
-    stop();
     if (i >= steps.length) {
+      stop();
       done = true;
       return;
     }
     index = Math.max(0, i);
-    remaining = steps[index].hold;
+    remaining = steps[index].seconds;
   }
 
   const next = () => goto(index + 1);
@@ -116,20 +141,20 @@
     </hgroup>
 
     <p class="timer" class:running>{remaining}</p>
-    <progress value={step.hold - remaining} max={step.hold}></progress>
+    <progress value={step.seconds - remaining} max={step.seconds}></progress>
 
     <div class="grid">
       {#if running}
         <button class="secondary" onclick={stop}>Pause</button>
       {:else}
-        <button onclick={start}>Start hold</button>
+        <button onclick={start}>Start</button>
       {/if}
       <button class="outline" onclick={next}>Skip →</button>
     </div>
     <button class="outline secondary" onclick={back} disabled={index === 0}>← Back</button>
 
     <footer>
-      <small>Hold {index + 1} of {steps.length}</small>
+      <small>Step {index + 1} of {steps.length}</small>
       <progress value={index} max={steps.length}></progress>
     </footer>
   </article>

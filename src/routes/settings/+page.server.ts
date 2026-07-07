@@ -2,7 +2,7 @@ import { desc, eq } from 'drizzle-orm';
 import { fail } from '@sveltejs/kit';
 import { z } from 'zod';
 import { db } from '$lib/server/db';
-import { sessions } from '$lib/server/schema';
+import { sessions, settings } from '$lib/server/schema';
 import { logger } from '$lib/server/logger';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -16,7 +16,9 @@ function toLocalInput(d: Date): string {
 export const load: PageServerLoad = async () => {
   const rows = db.select().from(sessions).orderBy(desc(sessions.completedAt)).all();
   return {
-    sessions: rows.map((r) => ({ id: r.id, completedAt: toLocalInput(r.completedAt) }))
+    sessions: rows.map((r) => ({ id: r.id, completedAt: toLocalInput(r.completedAt) })),
+    // Seeded at boot, so the row always exists.
+    settings: db.select().from(settings).get()!
   };
 };
 
@@ -26,8 +28,19 @@ const updateSchema = z.object({
   completedAt: z.coerce.date()
 });
 const deleteSchema = z.object({ id: z.coerce.number().int().positive() });
+const timersSchema = z.object({
+  restSeconds: z.coerce.number().int().min(0).max(600),
+  repositionSeconds: z.coerce.number().int().min(0).max(600)
+});
 
 export const actions: Actions = {
+  timers: async ({ request }) => {
+    const parsed = timersSchema.safeParse(Object.fromEntries(await request.formData()));
+    if (!parsed.success) return fail(400, { error: 'Invalid timer values' });
+    db.update(settings).set(parsed.data).where(eq(settings.id, 1)).run();
+    logger.info(parsed.data, 'timer settings updated');
+    return { saved: true };
+  },
   update: async ({ request }) => {
     const parsed = updateSchema.safeParse(Object.fromEntries(await request.formData()));
     if (!parsed.success) return fail(400, { error: 'Invalid date' });

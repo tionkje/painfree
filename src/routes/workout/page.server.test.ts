@@ -8,10 +8,14 @@ beforeAll(() => {
   vi.stubEnv('DATABASE_PATH', join(mkdtempSync(join(tmpdir(), 'painfree-')), 'workout.db'));
 });
 
-test('load returns the checked-in program in order', async () => {
+test('load returns the checked-in program in order plus the seeded settings', async () => {
   const { load } = await import('./+page.server');
-  const data = (await load({} as Parameters<typeof load>[0])) as { exercises: Exercise[] };
+  const data = (await load({} as Parameters<typeof load>[0])) as {
+    exercises: Exercise[];
+    settings: { restSeconds: number; repositionSeconds: number };
+  };
   expect(data.exercises.map((e) => e.slug)).toEqual(['curl-up', 'side-plank', 'bird-dog']);
+  expect(data.settings).toMatchObject({ restSeconds: 5, repositionSeconds: 15 });
 });
 
 test('complete action logs a session', async () => {
