@@ -72,13 +72,37 @@ describe('orderedLive', () => {
 });
 
 describe('mutations', () => {
-  it('logSession appends an unsynced session and persists', async () => {
+  it('startSession stores an in-progress session immediately and returns its uuid', async () => {
     const f = fetchOk();
-    store.logSession([{ slug: 'a', unit: 'hold', target: 10, completed: 10 }]);
+    const uuid = store.startSession([{ slug: 'a', unit: 'hold', target: 10, completed: 0 }]);
     expect(state.sessions).toHaveLength(1);
+    expect(state.sessions[0].uuid).toBe(uuid);
     expect(state.sessions[0].synced).toBe(false);
+    expect(state.sessions[0].notes).toBe('');
     expect(localStorage.getItem('sessions')).toContain('"slug":"a"');
     await vi.waitFor(() => expect(f).toHaveBeenCalled());
+  });
+  it('updateSession patches exercises and notes, bumps updatedAt, marks unsynced', async () => {
+    fetchOk();
+    state.sessions = [cs({ uuid: 'u', synced: true })];
+    store.updateSession('u', {
+      exercises: [{ slug: 'a', unit: 'hold', target: 10, completed: 10, rating: 3 }],
+      notes: 'felt good'
+    });
+    expect(state.sessions[0].exercises[0].rating).toBe(3);
+    expect(state.sessions[0].notes).toBe('felt good');
+    expect(state.sessions[0].synced).toBe(false);
+    expect(state.sessions[0].updatedAt).not.toBe('2026-01-01T10:00:00.000Z');
+  });
+  it('updateSession leaves omitted fields untouched', async () => {
+    fetchOk();
+    state.sessions = [cs({ uuid: 'u', notes: 'keep me' })];
+    store.updateSession('u', { exercises: [] });
+    expect(state.sessions[0].notes).toBe('keep me');
+  });
+  it('updateSession is a no-op for an unknown uuid', () => {
+    store.updateSession('nope', { notes: 'x' });
+    expect(state.sessions).toEqual([]);
   });
   it('backfill adds a dated empty session', async () => {
     const f = fetchOk();

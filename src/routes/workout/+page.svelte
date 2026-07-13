@@ -4,10 +4,10 @@
   import { goto as navigate } from '$app/navigation';
   import { exercises } from '$lib/exercises';
   import { buildSteps, nextUnit, type Step } from '$lib/workout';
-  import { logSession } from '$lib/client/sessions.svelte';
+  import { startSession, updateSession } from '$lib/client/sessions.svelte';
   import { timers } from '$lib/client/settings.svelte';
   import { countdownTick, exerciseDone, holdDone, lastRep, setDone } from '$lib/client/audio';
-  import type { CompletionEntry } from '$lib/sync';
+  import { RATING_LABELS, type CompletionEntry } from '$lib/sync';
 
   // The program is static per page load; compute the step list once.
   const steps = untrack(() => buildSteps(exercises, timers.restSeconds, timers.repositionSeconds));
@@ -22,6 +22,13 @@
   // Skipping past a unit leaves it out, reducing that exercise's completeness.
   const completed = new SvelteSet<number>();
   let timer: ReturnType<typeof setInterval> | null = null;
+
+  // Difficulty per exercise (1–5), set in the end-of-session dialog.
+  let ratings = $state<Record<string, number | null>>(
+    Object.fromEntries(exercises.map((e) => [e.slug, null]))
+  );
+  let notes = $state('');
+  let sessionUuid: string | null = null;
 
   const step = $derived(steps[index]);
 
@@ -97,20 +104,23 @@
         slug: ex.slug,
         unit: ex.mode === 'hold' ? 'hold' : 'rep',
         target: idxs.length,
-        completed: idxs.filter((i) => completed.has(i)).length
+        completed: idxs.filter((i) => completed.has(i)).length,
+        rating: ratings[ex.slug] ?? null
       };
     })
   );
 
-  // Local-first: write the session to the store (which syncs in the background)
-  // and go straight to history — no network round-trip on the completion path.
-  function finish() {
-    logSession(completion);
-    void navigate('/history');
+  // The session exists from the first action and is upserted (and synced)
+  // after every unit — abandoning mid-workout still keeps what was done.
+  // There is no separate save step; the rating dialog updates the same session.
+  function persist() {
+    if (sessionUuid === null) sessionUuid = startSession(completion);
+    else updateSession(sessionUuid, { exercises: completion, notes });
   }
 
   function markDone() {
     completed.add(index);
+    persist();
   }
 
   function stop() {
@@ -165,7 +175,13 @@
   // Intro → session. A tap-paced first step just shows its Done button.
   function begin() {
     started = true;
+    persist();
     if (step.hold !== null) start();
+  }
+
+  function saveAndFinish() {
+    persist();
+    void navigate('/history');
   }
 
   // Reps have no timer: tapping Done counts the rep and advances, resuming the
@@ -201,9 +217,30 @@
 {#if steps.length === 0}
   <p>No exercises configured.</p>
 {:else if done}
-  <article style="text-align:center">
-    <h2>🎉 Session complete</h2>
-    <button onclick={finish}>Log it & view history</button>
+  <article>
+    <h2 style="text-align:center">🎉 Session complete</h2>
+    <p style="text-align:center">How hard was each exercise?</p>
+    {#each exercises as ex (ex.slug)}
+      <fieldset>
+        <legend><strong>{ex.name}</strong></legend>
+        {#each RATING_LABELS as label, i (label)}
+          <label>
+            <input
+              type="radio"
+              name="rating-{ex.slug}"
+              value={i + 1}
+              bind:group={ratings[ex.slug]}
+            />
+            {label}
+          </label>
+        {/each}
+      </fieldset>
+    {/each}
+    <label>
+      Notes
+      <textarea bind:value={notes} rows="3" placeholder="Anything to remember?"></textarea>
+    </label>
+    <button onclick={saveAndFinish}>Save</button>
   </article>
 {:else if !started}
   <h1>Workout</h1>
