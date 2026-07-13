@@ -8,7 +8,12 @@ export type CompletionEntry = {
   unit: 'hold' | 'rep';
   target: number;
   completed: number;
+  // Perceived difficulty 1 (way too easy) … 5 (way too hard); null/absent = unrated.
+  rating?: number | null;
 };
+
+// Index+1 = the stored rating value. The single source of the 5-option scale.
+export const RATING_LABELS = ['Way too easy', 'Too easy', 'Just right', 'Too hard', 'Way too hard'];
 
 // A session as held on the client. `deleted`/`synced` are client-only
 // bookkeeping: `deleted` is a tombstone awaiting push, `synced` = the server has
@@ -19,6 +24,8 @@ export type ClientSession = {
   updatedAt: string; // ISO
   deleted: boolean;
   synced: boolean;
+  // Free-form note from the end-of-session dialog; absent on pre-notes sessions.
+  notes?: string;
   exercises: CompletionEntry[];
 };
 
