@@ -39,11 +39,14 @@ test('upserts a session with exercises and returns it', async () => {
       completedAt: iso,
       updatedAt: iso,
       deleted: false,
-      exercises: [{ slug: 'curl-up', unit: 'hold', target: 12, completed: 6 }]
+      exercises: [{ slug: 'curl-up', unit: 'hold', target: 12, completed: 6, rating: 3 }]
     }
   ]);
   const a = out.find((s) => s.uuid === 'a');
-  expect(a?.exercises).toEqual([{ slug: 'curl-up', unit: 'hold', target: 12, completed: 6 }]);
+  expect(a?.exercises).toEqual([
+    { slug: 'curl-up', unit: 'hold', target: 12, completed: 6, rating: 3 }
+  ]);
+  expect(a?.notes).toBe('');
 });
 
 test('stores a backfilled session with no exercises', async () => {
@@ -75,4 +78,34 @@ test('deleting an unknown uuid is a no-op', async () => {
     { uuid: 'ghost', completedAt: iso, updatedAt: iso, deleted: true, exercises: [] }
   ]);
   expect(out.find((s) => s.uuid === 'ghost')).toBeUndefined();
+});
+
+test('stores notes and defaults missing ratings to null', async () => {
+  const out = await sync([
+    {
+      uuid: 'n',
+      completedAt: iso,
+      updatedAt: iso,
+      deleted: false,
+      notes: 'felt strong',
+      exercises: [{ slug: 'bird-dog', unit: 'hold', target: 6, completed: 6 }]
+    }
+  ]);
+  const n = out.find((s) => s.uuid === 'n');
+  expect(n?.notes).toBe('felt strong');
+  expect(n?.exercises).toEqual([
+    { slug: 'bird-dog', unit: 'hold', target: 6, completed: 6, rating: null }
+  ]);
+});
+
+test('rejects an out-of-range rating', async () => {
+  const { POST } = await import('./+server');
+  const change = {
+    uuid: 'x',
+    completedAt: iso,
+    updatedAt: iso,
+    deleted: false,
+    exercises: [{ slug: 's', unit: 'hold', target: 1, completed: 1, rating: 9 }]
+  };
+  await expect(POST(req({ changes: [change] }))).rejects.toMatchObject({ status: 400 });
 });

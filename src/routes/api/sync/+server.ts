@@ -14,7 +14,9 @@ const entrySchema = z.object({
   slug: z.string().min(1),
   unit: z.enum(['hold', 'rep']),
   target: z.number().int().nonnegative(),
-  completed: z.number().int().nonnegative()
+  completed: z.number().int().nonnegative(),
+  // Old clients / pre-rating sessions omit it.
+  rating: z.number().int().min(1).max(5).nullish()
 });
 const changeSchema = z.object({
   uuid: z.string().min(1),
@@ -22,6 +24,7 @@ const changeSchema = z.object({
   completedAt: z.coerce.date(),
   updatedAt: z.coerce.date(),
   deleted: z.boolean(),
+  notes: z.string().nullish(),
   exercises: z.array(entrySchema)
 });
 const bodySchema = z.object({ changes: z.array(changeSchema) });
@@ -48,10 +51,15 @@ export const POST: RequestHandler = async ({ request }) => {
     }
     const { id } = db
       .insert(sessions)
-      .values({ uuid: c.uuid, completedAt: c.completedAt, updatedAt: c.updatedAt })
+      .values({
+        uuid: c.uuid,
+        completedAt: c.completedAt,
+        updatedAt: c.updatedAt,
+        notes: c.notes ?? null
+      })
       .onConflictDoUpdate({
         target: sessions.uuid,
-        set: { completedAt: c.completedAt, updatedAt: c.updatedAt }
+        set: { completedAt: c.completedAt, updatedAt: c.updatedAt, notes: c.notes ?? null }
       })
       .returning({ id: sessions.id })
       .get();
@@ -65,7 +73,8 @@ export const POST: RequestHandler = async ({ request }) => {
             exerciseSlug: e.slug,
             unit: e.unit,
             targetUnits: e.target,
-            completedUnits: e.completed
+            completedUnits: e.completed,
+            rating: e.rating ?? null
           }))
         )
         .run();
@@ -84,11 +93,13 @@ export const POST: RequestHandler = async ({ request }) => {
     uuid: r.uuid,
     completedAt: r.completedAt.toISOString(),
     updatedAt: r.updatedAt.toISOString(),
+    notes: r.notes ?? '',
     exercises: (bySession.get(r.id) ?? []).map((e) => ({
       slug: e.exerciseSlug,
       unit: e.unit,
       target: e.targetUnits,
-      completed: e.completedUnits
+      completed: e.completedUnits,
+      rating: e.rating
     }))
   }));
 
