@@ -2,60 +2,12 @@
   import { untrack } from 'svelte';
   import { SvelteSet } from 'svelte/reactivity';
   import { goto as navigate } from '$app/navigation';
-  import { exercises, type Exercise } from '$lib/exercises';
+  import { exercises } from '$lib/exercises';
+  import { buildSteps, nextUnit } from '$lib/workout';
+  import { countdownTick, exerciseDone, holdDone, lastRep, setDone } from '$lib/client/audio';
   import { logSession } from '$lib/client/sessions.svelte';
   import { timers } from '$lib/client/settings.svelte';
   import type { CompletionEntry } from '$lib/sync';
-
-  // hold === null means a tap-to-count rep (no timer); a number is a timed hold.
-  // Pause steps (Rest/Reposition) have no slug — they belong to no exercise.
-  type Step = { slug: string | null; exercise: string; label: string; hold: number | null };
-
-  // Flatten the program into a flat list of units (one per rep/hold/side), with
-  // a rest step between holds in the same position and a reposition step when
-  // the next hold is another exercise or side. Reps are tap-paced, so no pause
-  // is inserted before them. Zero-length pauses are skipped.
-  function buildSteps(list: Exercise[], rest: number, reposition: number): Step[] {
-    const units: (Step & { pos: string })[] = [];
-    for (const ex of list) {
-      const setReps = ex.scheme.split(',').map((n) => parseInt(n.trim(), 10));
-      const nsets = setReps.length;
-      setReps.forEach((reps, i) => {
-        const sides = ex.perSide ? ['Left', 'Right'] : [null];
-        for (const side of sides) {
-          for (let r = 1; r <= reps; r++) {
-            const parts = [`Set ${i + 1}/${nsets}`];
-            if (side) parts.push(side);
-            parts.push(ex.mode === 'hold' ? `hold ${r}/${reps}` : `rep ${r}/${reps}`);
-            units.push({
-              slug: ex.slug,
-              exercise: ex.name,
-              label: parts.join(' · '),
-              hold: ex.mode === 'hold' ? (ex.holdSeconds ?? 0) : null,
-              pos: `${ex.slug}/${side}`
-            });
-          }
-        }
-      });
-    }
-    const steps: Step[] = [];
-    units.forEach((u, i) => {
-      if (i > 0 && u.hold !== null) {
-        const move = u.pos !== units[i - 1].pos;
-        const seconds = move ? reposition : rest;
-        if (seconds > 0) {
-          steps.push({
-            slug: null,
-            exercise: move ? 'Reposition' : 'Rest',
-            label: `next: ${u.exercise} · ${u.label}`,
-            hold: seconds
-          });
-        }
-      }
-      steps.push(u);
-    });
-    return steps;
-  }
 
   // The program is static per page load; compute the step list once.
   const steps = untrack(() => buildSteps(exercises, timers.restSeconds, timers.repositionSeconds));
@@ -64,6 +16,7 @@
   let remaining = $state(steps[0]?.hold ?? 0);
   let running = $state(false);
   let done = $state(false);
+  let prep = $state(0);
   // Indices of units the user actually finished (timer hit zero, or tapped Done).
   // Skipping past a unit leaves it out, reducing that exercise's completeness.
   const completed = new SvelteSet<number>();
@@ -119,39 +72,51 @@
     completed.add(index);
   }
 
-  function beep() {
-    try {
-      const ctx = new AudioContext();
-      const osc = ctx.createOscillator();
-      osc.frequency.value = 880;
-      osc.connect(ctx.destination);
-      osc.start();
-      osc.stop(ctx.currentTime + 0.15);
-    } catch (e) {
-      // Audio is a nice-to-have; a blocked AudioContext must not break the timer.
-      console.warn('beep failed', e);
-    }
-    navigator.vibrate?.(200);
-  }
-
   function stop() {
     if (timer) clearInterval(timer);
     timer = null;
     running = false;
   }
 
-  // One start runs the whole workout: hitting zero beeps and rolls straight
-  // into the next step; the timer only stops on pause, a rep, or completion.
+  // One start runs the whole workout: hitting zero rolls straight into the
+  // next step; the timer only stops on pause, a tap-rep, or completion. The
+  // first `prep` ticks after a Start press count down the get-ready phase
+  // before the hold's own clock begins.
   function tick() {
+    if (prep > 0) {
+      prep -= 1;
+      if (prep > 0) countdownTick();
+      return;
+    }
     remaining -= 1;
-    if (remaining > 0) return;
-    beep();
-    markDone();
+    if (remaining > 0) {
+      // Audible 3-2-1 lead-in to the next hold during rest/reposition.
+      if (step.kind !== 'unit' && remaining <= 3) countdownTick();
+      return;
+    }
+    if (step.kind === 'unit') {
+      markDone();
+      finishSound();
+    }
     next();
+  }
+
+  // Distinct completion sounds: exercise finished > set finished (reposition
+  // next) > plain hold done. The last-rep heads-up fires in goto().
+  function finishSound() {
+    const upcoming = nextUnit(steps, index);
+    if (!upcoming || upcoming.slug !== step.slug) exerciseDone();
+    else if (steps[index + 1]?.kind === 'reposition') setDone();
+    else holdDone();
   }
 
   function start() {
     running = true;
+    // 3s get-ready before a hold; pauses are their own preparation.
+    if (step.kind === 'unit' && step.hold !== null) {
+      prep = 3;
+      countdownTick();
+    }
     timer = setInterval(tick, 1000);
   }
 
@@ -159,6 +124,7 @@
   // auto-run when the next step is timed.
   function repDone() {
     markDone();
+    finishSound();
     next();
     if (!done && !running && step.hold !== null) start();
   }
@@ -171,9 +137,13 @@
       done = true;
       return;
     }
+    prep = 0;
     index = Math.max(0, i);
     remaining = steps[index].hold ?? 0;
     if (steps[index].hold === null) stop();
+    const s = steps[index];
+    // Heads-up when the final rep of a multi-rep set starts mid-run.
+    if (running && s.kind === 'unit' && s.rep === s.repCount && s.repCount > 1) lastRep();
   }
 
   const next = () => goto(index + 1);
@@ -199,6 +169,9 @@
 
     {#if step.hold === null}
       <p class="timer">✓</p>
+    {:else if prep > 0}
+      <p class="timer">{prep}</p>
+      <p>Get ready…</p>
     {:else}
       <p class="timer" class:running>{remaining}</p>
       <progress value={step.hold - remaining} max={step.hold}></progress>
