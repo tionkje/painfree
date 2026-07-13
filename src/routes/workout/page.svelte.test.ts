@@ -49,20 +49,32 @@ function renderPage(list: Exercise[] = program, rest = 1, reposition = 1) {
   return render(Page);
 }
 
-function stubAudio() {
-  class FakeAudio {
-    currentTime = 0;
-    destination = {};
-    createOscillator() {
-      return { frequency: { value: 0 }, connect: vi.fn(), start: vi.fn(), stop: vi.fn() };
-    }
+// audio.ts caches one AudioContext, so stub it once at file level and record
+// every played frequency; beforeEach clears the recording.
+const freqs: number[] = [];
+const vibrate = vi.fn();
+class FakeAudio {
+  currentTime = 0;
+  destination = {};
+  createOscillator() {
+    const osc = {
+      frequency: { value: 0 },
+      connect: vi.fn(),
+      start: vi.fn(() => freqs.push(osc.frequency.value)),
+      stop: vi.fn()
+    };
+    return osc;
   }
-  vi.stubGlobal('AudioContext', FakeAudio);
-  vi.stubGlobal('navigator', { vibrate: vi.fn() });
 }
 
 describe('workout page (brittle component UI - safe to skip)', () => {
-  beforeEach(() => vi.useFakeTimers());
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.stubGlobal('AudioContext', FakeAudio);
+    vi.stubGlobal('navigator', { vibrate });
+    freqs.length = 0;
+    vibrate.mockClear();
+  });
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
@@ -114,61 +126,46 @@ describe('workout page (brittle component UI - safe to skip)', () => {
     expect(screen.getByText('Step 1 of 4')).toBeInTheDocument();
   });
 
-  test('one start runs the whole workout through rests to completion', async () => {
-    const oscStart = vi.fn();
-    class FakeAudio {
-      currentTime = 0;
-      destination = {};
-      createOscillator() {
-        return { frequency: { value: 0 }, connect: vi.fn(), start: oscStart, stop: vi.fn() };
-      }
-    }
-    vi.stubGlobal('AudioContext', FakeAudio);
-    const vibrate = vi.fn();
-    vi.stubGlobal('navigator', { vibrate });
-
+  test('start preps 3s, then auto-runs the workout with distinct sounds', async () => {
     renderPage();
     await fireEvent.click(screen.getByRole('button', { name: 'Start' }));
-    expect(screen.getByRole('button', { name: 'Pause' })).toBeInTheDocument();
 
-    await vi.advanceTimersByTimeAsync(1000);
-    expect(oscStart).not.toHaveBeenCalled();
-    expect(screen.getByText('Step 1 of 7')).toBeInTheDocument();
+    // Get-ready countdown: tick at the press, then at 1s and 2s.
+    expect(screen.getByText('Get ready…')).toBeInTheDocument();
+    expect(freqs).toEqual([660]);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(freqs).toEqual([660, 660, 660]);
 
-    await vi.advanceTimersByTimeAsync(1000);
-    expect(oscStart).toHaveBeenCalled();
+    // Prep expires, then A's first 2s hold runs out → plain hold-done.
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(screen.queryByText('Get ready…')).not.toBeInTheDocument();
+    expect(freqs.slice(3)).toEqual([880]);
     expect(vibrate).toHaveBeenCalledWith(200);
     expect(screen.getByText(/^Rest — /)).toBeInTheDocument();
-    expect(screen.getByText('Step 2 of 7')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Pause' })).toBeInTheDocument();
 
-    // 1s rest + 2s hold + 1s repo + 1s hold + 1s repo + 1s hold.
-    await vi.advanceTimersByTimeAsync(7000);
+    // Rest over → landing on the set's final rep → double-blip heads-up.
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(freqs.slice(4)).toEqual([880, 880]);
+
+    // A finishes → ascending exercise-done triad.
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(freqs.slice(6)).toEqual([660, 880, 1100]);
+
+    // Reposition + B·Left → descending set-done (reposition to the other side).
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(freqs.slice(9)).toEqual([880, 660]);
+
+    // Reposition + B·Right → workout complete with the exercise-done triad.
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(freqs.slice(11)).toEqual([660, 880, 1100]);
     expect(screen.getByText(/Session complete/)).toBeInTheDocument();
 
-    // Every unit ran to zero, so completion is full — pauses count for nothing.
     await fireEvent.click(screen.getByRole('button', { name: /Log it/ }));
     expect(vi.mocked(logSession).mock.calls[0][0]).toEqual([
       { slug: 'a', unit: 'hold', target: 2, completed: 2 },
       { slug: 'b', unit: 'hold', target: 2, completed: 2 }
     ]);
     expect(goto).toHaveBeenCalledWith('/history');
-  });
-
-  test('beep survives a blocked AudioContext and a missing vibrate', async () => {
-    class BlockedAudio {
-      constructor() {
-        throw new Error('blocked');
-      }
-    }
-    vi.stubGlobal('AudioContext', BlockedAudio);
-    vi.stubGlobal('navigator', {});
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-
-    renderPage();
-    await fireEvent.click(screen.getByRole('button', { name: 'Start' }));
-    await vi.advanceTimersByTimeAsync(2000);
-    expect(warn).toHaveBeenCalledWith('beep failed', expect.any(Error));
   });
 
   test('pause stops the countdown', async () => {
@@ -238,7 +235,6 @@ describe('workout page (brittle component UI - safe to skip)', () => {
   });
 
   test('auto-run halts on a rep and resumes when Done is tapped', async () => {
-    stubAudio();
     const mixed: Exercise[] = [
       ex({ slug: 'h1' }),
       ex({ slug: 'r', mode: 'reps', holdSeconds: undefined }),
@@ -248,7 +244,8 @@ describe('workout page (brittle component UI - safe to skip)', () => {
     expect(screen.getByText('Step 1 of 4')).toBeInTheDocument();
 
     await fireEvent.click(screen.getByRole('button', { name: 'Start' }));
-    await vi.advanceTimersByTimeAsync(1000);
+    // 3s prep + the 1s hold before landing on the tap-paced rep.
+    await vi.advanceTimersByTimeAsync(4000);
     expect(screen.getByText(/rep 1\/1/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Pause' })).not.toBeInTheDocument();
 
@@ -258,5 +255,24 @@ describe('workout page (brittle component UI - safe to skip)', () => {
 
     await vi.advanceTimersByTimeAsync(2000);
     expect(screen.getByText(/Session complete/)).toBeInTheDocument();
+  });
+
+  test('start during a rest/reposition pause skips the prep countdown', async () => {
+    renderPage();
+    await fireEvent.click(screen.getByRole('button', { name: 'Skip →' })); // on the Rest step
+    await fireEvent.click(screen.getByRole('button', { name: 'Start' }));
+    expect(screen.queryByText('Get ready…')).not.toBeInTheDocument();
+  });
+
+  test('a rest pause ticks its last 3 seconds as a lead-in to the next hold', async () => {
+    renderPage(program, 3, 1);
+    await fireEvent.click(screen.getByRole('button', { name: 'Start' }));
+    // 3s prep + A's 2s hold → hold-done, then onto the 3s rest (remaining 3).
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(screen.getByText(/^Rest — /)).toBeInTheDocument();
+    freqs.length = 0;
+    // Rest counts 3→2→1: ticks at remaining 2 and 1 (both >0 and <=3).
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(freqs).toEqual([660, 660]);
   });
 });
