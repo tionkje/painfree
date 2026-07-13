@@ -2,60 +2,11 @@
   import { untrack } from 'svelte';
   import { SvelteSet } from 'svelte/reactivity';
   import { goto as navigate } from '$app/navigation';
-  import { exercises, type Exercise } from '$lib/exercises';
+  import { exercises } from '$lib/exercises';
+  import { buildSteps } from '$lib/workout';
   import { logSession } from '$lib/client/sessions.svelte';
   import { timers } from '$lib/client/settings.svelte';
   import type { CompletionEntry } from '$lib/sync';
-
-  // hold === null means a tap-to-count rep (no timer); a number is a timed hold.
-  // Pause steps (Rest/Reposition) have no slug — they belong to no exercise.
-  type Step = { slug: string | null; exercise: string; label: string; hold: number | null };
-
-  // Flatten the program into a flat list of units (one per rep/hold/side), with
-  // a rest step between holds in the same position and a reposition step when
-  // the next hold is another exercise or side. Reps are tap-paced, so no pause
-  // is inserted before them. Zero-length pauses are skipped.
-  function buildSteps(list: Exercise[], rest: number, reposition: number): Step[] {
-    const units: (Step & { pos: string })[] = [];
-    for (const ex of list) {
-      const setReps = ex.scheme.split(',').map((n) => parseInt(n.trim(), 10));
-      const nsets = setReps.length;
-      setReps.forEach((reps, i) => {
-        const sides = ex.perSide ? ['Left', 'Right'] : [null];
-        for (const side of sides) {
-          for (let r = 1; r <= reps; r++) {
-            const parts = [`Set ${i + 1}/${nsets}`];
-            if (side) parts.push(side);
-            parts.push(ex.mode === 'hold' ? `hold ${r}/${reps}` : `rep ${r}/${reps}`);
-            units.push({
-              slug: ex.slug,
-              exercise: ex.name,
-              label: parts.join(' · '),
-              hold: ex.mode === 'hold' ? (ex.holdSeconds ?? 0) : null,
-              pos: `${ex.slug}/${side}`
-            });
-          }
-        }
-      });
-    }
-    const steps: Step[] = [];
-    units.forEach((u, i) => {
-      if (i > 0 && u.hold !== null) {
-        const move = u.pos !== units[i - 1].pos;
-        const seconds = move ? reposition : rest;
-        if (seconds > 0) {
-          steps.push({
-            slug: null,
-            exercise: move ? 'Reposition' : 'Rest',
-            label: `next: ${u.exercise} · ${u.label}`,
-            hold: seconds
-          });
-        }
-      }
-      steps.push(u);
-    });
-    return steps;
-  }
 
   // The program is static per page load; compute the step list once.
   const steps = untrack(() => buildSteps(exercises, timers.restSeconds, timers.repositionSeconds));

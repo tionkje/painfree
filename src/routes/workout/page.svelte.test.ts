@@ -230,6 +230,13 @@ describe('workout page (brittle component UI - safe to skip)', () => {
     expect(screen.getByText(/Session complete/)).toBeInTheDocument();
   });
 
+  test('a no-reposition per-side exercise alternates sides with rests only', () => {
+    renderPage([ex({ slug: 'alt', scheme: '2', perSide: true, needsReposition: false })]);
+    // L, Rest, R, Rest, L, Rest, R = 7 steps, none of them a reposition.
+    expect(screen.getByText('Step 1 of 7')).toBeInTheDocument();
+    expect(screen.getByText(/Set 1\/1 · Left · hold 1\/2/)).toBeInTheDocument();
+  });
+
   test('auto-run halts on a rep and resumes when Done is tapped', async () => {
     stubAudio();
     const mixed: Exercise[] = [
