@@ -27,6 +27,8 @@ function ex(partial: Partial<Exercise> & Pick<Exercise, 'slug'>): Exercise {
     scheme: '1',
     holdSeconds: 1,
     perSide: false,
+    needsReposition: true,
+    cues: [],
     ...partial
   };
 }

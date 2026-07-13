@@ -18,4 +18,17 @@ describe('exercises program', () => {
     expect(new Set(totals).size).toBe(1);
     expect(new Set(exercises.map((e) => e.holdSeconds)).size).toBe(1);
   });
+
+  it('carries form cues, reposition flags and per-side visuals', () => {
+    for (const e of exercises) {
+      expect(e.cues.length).toBeGreaterThanOrEqual(3);
+      if (e.perSide) {
+        expect(e.imageLeft).toBeTruthy();
+        expect(e.imageRight).toBeTruthy();
+      }
+    }
+    // Side plank needs repositioning between sides; bird dog alternates freely.
+    expect(exercises.find((e) => e.slug === 'side-plank')?.needsReposition).toBe(true);
+    expect(exercises.find((e) => e.slug === 'bird-dog')?.needsReposition).toBe(false);
+  });
 });
