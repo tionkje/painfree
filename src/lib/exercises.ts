@@ -51,7 +51,8 @@ export const exercises: Exercise[] = [
     image: '/exercises/side-plank.svg',
     video: 'https://www.youtube.com/results?search_query=mcgill+side+plank+side+bridge',
     mode: 'hold',
-    scheme: '6,4,2',
+    // Per-side: half the reps per side so total time matches the curl-up.
+    scheme: '3,2,1',
     holdSeconds: 10,
     perSide: true
   },
@@ -65,7 +66,8 @@ export const exercises: Exercise[] = [
     image: '/exercises/bird-dog.svg',
     video: 'https://www.youtube.com/results?search_query=mcgill+bird+dog',
     mode: 'hold',
-    scheme: '6,4,2',
+    // Per-side: half the reps per side so total time matches the curl-up.
+    scheme: '3,2,1',
     holdSeconds: 10,
     perSide: true
   }

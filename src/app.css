@@ -11,3 +11,24 @@
   font-variant-numeric: tabular-nums;
   margin: 0;
 }
+
+/* Workout page: big current/next exercise + time-left readouts. */
+.current-ex {
+  font-size: clamp(2rem, 8vw, 3.5rem);
+  margin-bottom: 0;
+}
+.next-ex {
+  font-size: clamp(1.2rem, 5vw, 2rem);
+}
+.step-label {
+  margin-bottom: 0;
+}
+.time-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.time-row strong {
+  font-size: clamp(1.5rem, 6vw, 2.5rem);
+  font-variant-numeric: tabular-nums;
+}

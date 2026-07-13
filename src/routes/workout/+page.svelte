@@ -71,6 +71,29 @@
 
   const step = $derived(steps[index]);
 
+  // Time-remaining display. Pauses count toward the exercise they lead into
+  // (buildSteps only inserts a pause before a unit, so a pause always has a
+  // following unit). Tap-paced reps have no duration and count as 0s.
+  const stepSlugs = steps.map(
+    (s, i) => s.slug ?? steps.slice(i + 1).find((n) => n.slug)?.slug ?? null
+  );
+  const durations = steps.map((s) => s.hold ?? 0);
+  const totalDuration = durations.reduce((a, b) => a + b, 0);
+
+  const currentSlug = $derived(stepSlugs[index]);
+  const currentEx = $derived(exercises.find((e) => e.slug === currentSlug));
+  const nextEx = $derived(exercises[exercises.findIndex((e) => e.slug === currentSlug) + 1]);
+  const exerciseDuration = $derived(
+    durations.reduce((t, d, j) => (stepSlugs[j] === currentSlug ? t + d : t), 0)
+  );
+  const exerciseLeft = $derived(
+    remaining +
+      durations.reduce((t, d, j) => (j > index && stepSlugs[j] === currentSlug ? t + d : t), 0)
+  );
+  const totalLeft = $derived(remaining + durations.reduce((t, d, j) => (j > index ? t + d : t), 0));
+
+  const fmt = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+
   // Per-exercise completion, logged to the local store on finish. Pause steps
   // have no slug, so they never count towards any exercise.
   const completion = $derived<CompletionEntry[]>(
@@ -169,9 +192,10 @@
 {:else}
   <article>
     <hgroup>
-      <h2 style="margin-bottom:0">{step.exercise}</h2>
-      <p>{step.label}</p>
+      <h2 class="current-ex">{currentEx?.name}</h2>
+      <p class="next-ex">Next: {nextEx?.name ?? 'Done 🎉'}</p>
     </hgroup>
+    <p class="step-label">{step.slug ? step.label : `${step.exercise} — ${step.label}`}</p>
 
     {#if step.hold === null}
       <p class="timer">✓</p>
@@ -193,8 +217,17 @@
     <button class="outline secondary" onclick={back} disabled={index === 0}>← Back</button>
 
     <footer>
+      <div class="time-row">
+        <span>Exercise</span>
+        <strong>{fmt(exerciseLeft)}</strong>
+      </div>
+      <progress value={exerciseDuration - exerciseLeft} max={exerciseDuration}></progress>
+      <div class="time-row">
+        <span>Total</span>
+        <strong>{fmt(totalLeft)}</strong>
+      </div>
+      <progress value={totalDuration - totalLeft} max={totalDuration}></progress>
       <small>Step {index + 1} of {steps.length}</small>
-      <progress value={index} max={steps.length}></progress>
     </footer>
   </article>
 

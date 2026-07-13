@@ -83,6 +83,30 @@ describe('workout page (brittle component UI - safe to skip)', () => {
     expect(screen.getByRole('link', { name: /Watch a video/ })).toBeInTheDocument();
   });
 
+  test('shows current/next exercise and exercise/total time left with progress', async () => {
+    renderPage();
+    // Steps: A·2s, Rest·1s, A·2s, Repo·1s, B·L·1s, Repo·1s, B·R·1s → total 9s.
+    expect(screen.getByRole('heading', { name: 'A', level: 2 })).toBeInTheDocument();
+    expect(screen.getByText(/Next: B/)).toBeInTheDocument();
+    expect(screen.getByText('0:05')).toBeInTheDocument(); // exercise A: 2+1+2
+    expect(screen.getByText('0:09')).toBeInTheDocument(); // total
+
+    const skip = () => fireEvent.click(screen.getByRole('button', { name: 'Skip →' }));
+    // On the rest between A's holds, the pause counts toward A.
+    await skip();
+    expect(screen.getByRole('heading', { name: 'A', level: 2 })).toBeInTheDocument();
+    expect(screen.getByText('0:03')).toBeInTheDocument(); // rest 1 + hold 2
+    expect(screen.getByText('0:07')).toBeInTheDocument();
+
+    // On the reposition into B, the pause counts toward B; B is the last exercise.
+    await skip();
+    await skip();
+    expect(screen.getByRole('heading', { name: 'B', level: 2 })).toBeInTheDocument();
+    expect(screen.getByText(/Next: Done 🎉/)).toBeInTheDocument();
+    // B is the last exercise, so exercise-left === total-left (repo+L+repo+R).
+    expect(screen.getAllByText('0:04')).toHaveLength(2);
+  });
+
   test('zero pause times produce a holds-only program', () => {
     renderPage(program, 0, 0);
     expect(screen.getByText('Step 1 of 4')).toBeInTheDocument();
@@ -112,7 +136,7 @@ describe('workout page (brittle component UI - safe to skip)', () => {
     await vi.advanceTimersByTimeAsync(1000);
     expect(oscStart).toHaveBeenCalled();
     expect(vibrate).toHaveBeenCalledWith(200);
-    expect(screen.getByRole('heading', { name: 'Rest' })).toBeInTheDocument();
+    expect(screen.getByText(/^Rest — /)).toBeInTheDocument();
     expect(screen.getByText('Step 2 of 7')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Pause' })).toBeInTheDocument();
 
@@ -159,7 +183,7 @@ describe('workout page (brittle component UI - safe to skip)', () => {
     const skip = () => fireEvent.click(screen.getByRole('button', { name: 'Skip →' }));
 
     await skip();
-    expect(screen.getByRole('heading', { name: 'Rest' })).toBeInTheDocument();
+    expect(screen.getByText(/^Rest — /)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '← Back' })).toBeEnabled();
 
     await fireEvent.click(screen.getByRole('button', { name: '← Back' }));
@@ -168,7 +192,7 @@ describe('workout page (brittle component UI - safe to skip)', () => {
     await skip();
     await skip();
     await skip();
-    expect(screen.getByRole('heading', { name: 'Reposition' })).toBeInTheDocument();
+    expect(screen.getByText(/^Reposition — /)).toBeInTheDocument();
 
     await skip();
     await skip();
@@ -220,7 +244,7 @@ describe('workout page (brittle component UI - safe to skip)', () => {
     expect(screen.queryByRole('button', { name: 'Pause' })).not.toBeInTheDocument();
 
     await fireEvent.click(screen.getByRole('button', { name: 'Done ✓' }));
-    expect(screen.getByRole('heading', { name: 'Reposition' })).toBeInTheDocument();
+    expect(screen.getByText(/^Reposition — /)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Pause' })).toBeInTheDocument();
 
     await vi.advanceTimersByTimeAsync(2000);
