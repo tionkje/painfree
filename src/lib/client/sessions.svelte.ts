@@ -44,16 +44,38 @@ function stamp(): string {
   return new Date().toISOString();
 }
 
-export function logSession(exercises: CompletionEntry[]): void {
+/**
+ * Create the session the moment a workout starts — abandoning mid-workout
+ * still keeps (and syncs) what was done. Returns the uuid for updateSession.
+ */
+export function startSession(exercises: CompletionEntry[]): string {
   const t = stamp();
+  const uuid = crypto.randomUUID();
   store.sessions.push({
-    uuid: crypto.randomUUID(),
+    uuid,
     completedAt: t,
     updatedAt: t,
     deleted: false,
     synced: false,
+    notes: '',
     exercises
   });
+  write(store.sessions);
+  void scheduleSync();
+  return uuid;
+}
+
+/** Upsert progress / ratings / notes onto an in-progress or past session. */
+export function updateSession(
+  uuid: string,
+  patch: { exercises?: CompletionEntry[]; notes?: string }
+): void {
+  const s = store.sessions.find((x) => x.uuid === uuid);
+  if (!s) return;
+  if (patch.exercises) s.exercises = patch.exercises;
+  if (patch.notes !== undefined) s.notes = patch.notes;
+  s.updatedAt = stamp();
+  s.synced = false;
   write(store.sessions);
   void scheduleSync();
 }

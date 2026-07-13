@@ -11,11 +11,14 @@ const hoisted = vi.hoisted(() => ({
 vi.mock('$lib/exercises', () => ({ exercises: hoisted.program }));
 vi.mock('$lib/client/settings.svelte', () => ({ timers: hoisted.timers }));
 vi.mock('$app/navigation', () => ({ goto: vi.fn() }));
-vi.mock('$lib/client/sessions.svelte', () => ({ logSession: vi.fn() }));
+vi.mock('$lib/client/sessions.svelte', () => ({
+  startSession: vi.fn(() => 'uuid-1'),
+  updateSession: vi.fn()
+}));
 
 import Page from './+page.svelte';
 import { goto } from '$app/navigation';
-import { logSession } from '$lib/client/sessions.svelte';
+import { startSession, updateSession } from '$lib/client/sessions.svelte';
 
 function ex(partial: Partial<Exercise> & Pick<Exercise, 'slug'>): Exercise {
   return {
@@ -95,7 +98,8 @@ describe('workout page (brittle component UI - safe to skip)', () => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
     vi.mocked(goto).mockClear();
-    vi.mocked(logSession).mockClear();
+    vi.mocked(startSession).mockClear();
+    vi.mocked(updateSession).mockClear();
   });
 
   test('shows an empty state when there are no exercises', () => {
@@ -232,7 +236,7 @@ describe('workout page (brittle component UI - safe to skip)', () => {
     expect(screen.getByRole('heading', { name: 'ALT — Left', level: 2 })).toBeInTheDocument();
   });
 
-  test('skip and back navigate; skipping to the end completes and logs', async () => {
+  test('skip and back navigate; skipping to the end completes', async () => {
     renderPage(program, 0, 0); // holds only: A, A, B·L, B·R
     await begin();
     expect(screen.getByRole('button', { name: '← Back' })).toBeDisabled();
@@ -245,10 +249,48 @@ describe('workout page (brittle component UI - safe to skip)', () => {
 
     for (let i = 0; i < 4; i++) await skip();
     expect(screen.getByText(/Session complete/)).toBeInTheDocument();
-    await fireEvent.click(screen.getByRole('button', { name: /Log it/ }));
-    expect(vi.mocked(logSession).mock.calls[0][0]).toEqual([
-      { slug: 'a', unit: 'hold', target: 2, completed: 0 },
-      { slug: 'b', unit: 'hold', target: 2, completed: 0 }
+  });
+
+  test('begin stores the session immediately; each unit updates it', async () => {
+    renderPage(program, 0, 0); // holds only: A, A, B·L, B·R
+    await begin();
+    expect(vi.mocked(startSession).mock.calls[0][0]).toEqual([
+      { slug: 'a', unit: 'hold', target: 2, completed: 0, rating: null },
+      { slug: 'b', unit: 'hold', target: 2, completed: 0, rating: null }
+    ]);
+    await vi.advanceTimersByTimeAsync(5000); // 3s prep + 2s hold → first unit done
+    expect(updateSession).toHaveBeenCalledWith('uuid-1', {
+      exercises: [
+        { slug: 'a', unit: 'hold', target: 2, completed: 1, rating: null },
+        { slug: 'b', unit: 'hold', target: 2, completed: 0, rating: null }
+      ],
+      notes: ''
+    });
+  });
+
+  test('completion shows the rating dialog; Save stores ratings + notes', async () => {
+    renderPage(program, 0, 0);
+    await begin();
+    for (let i = 0; i < 4; i++) {
+      await fireEvent.click(screen.getByRole('button', { name: 'Skip →' }));
+    }
+    expect(screen.getByText(/Session complete/)).toBeInTheDocument();
+    expect(screen.getAllByRole('radio')).toHaveLength(10); // 5 options × 2 exercises
+
+    await fireEvent.click(screen.getAllByRole('radio', { name: 'Just right' })[0]);
+    await fireEvent.click(screen.getAllByRole('radio', { name: 'Too hard' })[1]);
+    await fireEvent.input(screen.getByRole('textbox'), { target: { value: 'left side weak' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    expect(vi.mocked(updateSession).mock.lastCall).toEqual([
+      'uuid-1',
+      {
+        exercises: [
+          { slug: 'a', unit: 'hold', target: 2, completed: 0, rating: 3 },
+          { slug: 'b', unit: 'hold', target: 2, completed: 0, rating: 4 }
+        ],
+        notes: 'left side weak'
+      }
     ]);
     expect(goto).toHaveBeenCalledWith('/history');
   });
