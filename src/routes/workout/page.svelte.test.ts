@@ -11,11 +11,14 @@ const hoisted = vi.hoisted(() => ({
 vi.mock('$lib/exercises', () => ({ exercises: hoisted.program }));
 vi.mock('$lib/client/settings.svelte', () => ({ timers: hoisted.timers }));
 vi.mock('$app/navigation', () => ({ goto: vi.fn() }));
-vi.mock('$lib/client/sessions.svelte', () => ({ logSession: vi.fn() }));
+vi.mock('$lib/client/sessions.svelte', () => ({
+  startSession: vi.fn(() => 'uuid-1'),
+  updateSession: vi.fn()
+}));
 
 import Page from './+page.svelte';
 import { goto } from '$app/navigation';
-import { logSession } from '$lib/client/sessions.svelte';
+import { startSession, updateSession } from '$lib/client/sessions.svelte';
 
 function ex(partial: Partial<Exercise> & Pick<Exercise, 'slug'>): Exercise {
   return {
@@ -27,18 +30,30 @@ function ex(partial: Partial<Exercise> & Pick<Exercise, 'slug'>): Exercise {
     scheme: '1',
     holdSeconds: 1,
     perSide: false,
-    needsReposition: true,
+    needsReposition: false,
     cues: [],
     ...partial
   };
 }
 
-// One single-side exercise with two holds (rest between) + one per-side exercise
-// (reposition between sides and between exercises) => with 1s pauses:
-// A·hold, Rest, A·hold, Reposition, B·Left, Reposition, B·Right = 7 steps.
+// A: one set of two 2s holds (rest between); B: side-plank-like per-side with
+// repositioning and per-side images.
+// Steps: A·1/2, Rest, A·2/2, Reposition, B·Left, Reposition, B·Right.
 const program: Exercise[] = [
-  ex({ slug: 'a', scheme: '2', holdSeconds: 2, perSide: false, video: 'https://youtu.be/demo' }),
-  ex({ slug: 'b', holdSeconds: 1, perSide: true })
+  ex({
+    slug: 'a',
+    scheme: '2',
+    holdSeconds: 2,
+    cues: ['brace hard'],
+    video: 'https://youtu.be/demo'
+  }),
+  ex({
+    slug: 'b',
+    perSide: true,
+    needsReposition: true,
+    imageLeft: '/exercises/b-left.svg',
+    imageRight: '/exercises/b-right.svg'
+  })
 ];
 
 function renderPage(list: Exercise[] = program, rest = 1, reposition = 1) {
@@ -67,6 +82,9 @@ class FakeAudio {
   }
 }
 
+const mode = () => document.querySelector('.session')?.getAttribute('data-mode');
+const begin = () => fireEvent.click(screen.getByRole('button', { name: 'Start workout' }));
+
 describe('workout page (brittle component UI - safe to skip)', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -80,7 +98,8 @@ describe('workout page (brittle component UI - safe to skip)', () => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
     vi.mocked(goto).mockClear();
-    vi.mocked(logSession).mockClear();
+    vi.mocked(startSession).mockClear();
+    vi.mocked(updateSession).mockClear();
   });
 
   test('shows an empty state when there are no exercises', () => {
@@ -88,150 +107,203 @@ describe('workout page (brittle component UI - safe to skip)', () => {
     expect(screen.getByText(/No exercises configured/)).toBeInTheDocument();
   });
 
-  test('expands the program into holds with rests and shows instructions', () => {
+  test('intro screen shows the program and instructions, no session view', () => {
     renderPage();
-    expect(screen.getByText('Step 1 of 7')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Start workout' })).toBeInTheDocument();
+    expect(document.querySelector('.session')).toBeNull();
     expect(screen.getByText(/each side/)).toBeInTheDocument();
-    expect(screen.getAllByRole('img')).toHaveLength(2);
     expect(screen.getAllByText('More detail')).toHaveLength(2);
     expect(screen.getByRole('link', { name: /Watch a video/ })).toBeInTheDocument();
   });
 
-  test('shows current/next exercise and exercise/total time left with progress', async () => {
+  test('begin opens the session view: prep, then active, big readouts + cue', async () => {
     renderPage();
-    // Steps: A·2s, Rest·1s, A·2s, Repo·1s, B·L·1s, Repo·1s, B·R·1s → total 9s.
+    await begin();
+    expect(mode()).toBe('prep');
+    expect(screen.getByText('GET READY')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'A', level: 2 })).toBeInTheDocument();
-    expect(screen.getByText(/Next: B/)).toBeInTheDocument();
-    expect(screen.getByText('0:05')).toBeInTheDocument(); // exercise A: 2+1+2
-    expect(screen.getByText('0:09')).toBeInTheDocument(); // total
+    expect(screen.getByText('1/1')).toBeInTheDocument(); // Set 1/1
+    expect(screen.getByText('1/2')).toBeInTheDocument(); // Hold 1/2
+    expect(screen.getByText('💡 brace hard')).toBeInTheDocument();
+    expect(screen.getByText('Next: Hold 2/2')).toBeInTheDocument();
 
-    const skip = () => fireEvent.click(screen.getByRole('button', { name: 'Skip →' }));
-    // On the rest between A's holds, the pause counts toward A.
-    await skip();
-    expect(screen.getByRole('heading', { name: 'A', level: 2 })).toBeInTheDocument();
-    expect(screen.getByText('0:03')).toBeInTheDocument(); // rest 1 + hold 2
-    expect(screen.getByText('0:07')).toBeInTheDocument();
-
-    // On the reposition into B, the pause counts toward B; B is the last exercise.
-    await skip();
-    await skip();
-    expect(screen.getByRole('heading', { name: 'B', level: 2 })).toBeInTheDocument();
-    expect(screen.getByText(/Next: Done 🎉/)).toBeInTheDocument();
-    // B is the last exercise, so exercise-left === total-left (repo+L+repo+R).
-    expect(screen.getAllByText('0:04')).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(mode()).toBe('active');
+    expect(screen.getByText('GO')).toBeInTheDocument();
   });
 
-  test('zero pause times produce a holds-only program', () => {
-    renderPage(program, 0, 0);
-    expect(screen.getByText('Step 1 of 4')).toBeInTheDocument();
+  test('rest and reposition display the upcoming unit, side switch and image', async () => {
+    renderPage();
+    await begin();
+    await vi.advanceTimersByTimeAsync(5000); // 3s prep + 2s hold → Rest before A 2/2
+    expect(mode()).toBe('rest');
+    expect(screen.getByText('REST')).toBeInTheDocument();
+    expect(screen.getByText('2/2')).toBeInTheDocument();
+    expect(screen.getByText('Next: B — Left')).toBeInTheDocument();
+
+    await vi.advanceTimersByTimeAsync(3000); // rest 1s + hold 2s → Reposition into B·Left
+    expect(mode()).toBe('reposition');
+    expect(screen.getByText('REPOSITION')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'B — Left', level: 2 })).toBeInTheDocument();
+    expect(screen.getByText('Next: Switch to Right')).toBeInTheDocument();
+    expect(document.querySelector('.session img')?.getAttribute('src')).toBe(
+      '/exercises/b-left.svg'
+    );
+
+    await vi.advanceTimersByTimeAsync(2000); // repo 1s + B·Left 1s → Reposition into B·Right
+    expect(screen.getByRole('heading', { name: 'B — Right', level: 2 })).toBeInTheDocument();
+    expect(screen.getByText('Next: Done 🎉')).toBeInTheDocument();
+    expect(document.querySelector('.session img')?.getAttribute('src')).toBe(
+      '/exercises/b-right.svg'
+    );
+  });
+
+  test('set/rep readouts keep their grid slots across steps', async () => {
+    renderPage();
+    await begin();
+    const cells = () => [...document.querySelectorAll('.counts small')].map((el) => el.textContent);
+    expect(cells()).toEqual(['Set', 'Hold']);
+    await vi.advanceTimersByTimeAsync(5000); // into the Rest pause
+    expect(cells()).toEqual(['Set', 'Hold']);
+  });
+
+  test('pause shows PAUSED and Start resumes', async () => {
+    renderPage();
+    await begin();
+    await fireEvent.click(screen.getByRole('button', { name: 'Pause' }));
+    expect(mode()).toBe('paused');
+    expect(screen.getByText('PAUSED')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Start' })).toBeInTheDocument();
+  });
+
+  test('resuming during a pause step skips the prep countdown', async () => {
+    renderPage();
+    await begin();
+    await vi.advanceTimersByTimeAsync(5000); // on the Rest step
+    await fireEvent.click(screen.getByRole('button', { name: 'Pause' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Start' }));
+    expect(mode()).toBe('rest');
   });
 
   test('start preps 3s, then auto-runs the workout with distinct sounds', async () => {
     renderPage();
-    await fireEvent.click(screen.getByRole('button', { name: 'Start' }));
-
-    // Get-ready countdown: tick at the press, then at 1s and 2s.
-    expect(screen.getByText('Get ready…')).toBeInTheDocument();
+    await begin();
+    expect(mode()).toBe('prep');
     expect(freqs).toEqual([660]);
     await vi.advanceTimersByTimeAsync(2000);
     expect(freqs).toEqual([660, 660, 660]);
 
-    // Prep expires, then A's first 2s hold runs out → plain hold-done.
-    await vi.advanceTimersByTimeAsync(3000);
-    expect(screen.queryByText('Get ready…')).not.toBeInTheDocument();
-    expect(freqs.slice(3)).toEqual([880]);
+    await vi.advanceTimersByTimeAsync(3000); // prep expires + A's first hold ends
+    expect(mode()).toBe('rest');
+    expect(freqs.slice(3)).toEqual([880]); // plain hold-done
     expect(vibrate).toHaveBeenCalledWith(200);
-    expect(screen.getByText(/^Rest — /)).toBeInTheDocument();
 
-    // Rest over → landing on the set's final rep → double-blip heads-up.
-    await vi.advanceTimersByTimeAsync(1000);
-    expect(freqs.slice(4)).toEqual([880, 880]);
+    await vi.advanceTimersByTimeAsync(1000); // rest over → set's final rep starts
+    expect(freqs.slice(4)).toEqual([880, 880]); // last-rep heads-up
 
-    // A finishes → ascending exercise-done triad.
-    await vi.advanceTimersByTimeAsync(2000);
-    expect(freqs.slice(6)).toEqual([660, 880, 1100]);
+    await vi.advanceTimersByTimeAsync(2000); // A finishes
+    expect(freqs.slice(6)).toEqual([660, 880, 1100]); // exercise done
 
-    // Reposition + B·Left → descending set-done (reposition to the other side).
-    await vi.advanceTimersByTimeAsync(2000);
-    expect(freqs.slice(9)).toEqual([880, 660]);
+    await vi.advanceTimersByTimeAsync(2000); // reposition + B·Left
+    expect(freqs.slice(9)).toEqual([880, 660]); // set done → reposition
 
-    // Reposition + B·Right → workout complete with the exercise-done triad.
-    await vi.advanceTimersByTimeAsync(2000);
+    await vi.advanceTimersByTimeAsync(2000); // reposition + B·Right → complete
     expect(freqs.slice(11)).toEqual([660, 880, 1100]);
     expect(screen.getByText(/Session complete/)).toBeInTheDocument();
-
-    await fireEvent.click(screen.getByRole('button', { name: /Log it/ }));
-    expect(vi.mocked(logSession).mock.calls[0][0]).toEqual([
-      { slug: 'a', unit: 'hold', target: 2, completed: 2 },
-      { slug: 'b', unit: 'hold', target: 2, completed: 2 }
-    ]);
-    expect(goto).toHaveBeenCalledWith('/history');
   });
 
-  test('pause stops the countdown', async () => {
-    renderPage();
-    await fireEvent.click(screen.getByRole('button', { name: 'Start' }));
-    await fireEvent.click(screen.getByRole('button', { name: 'Pause' }));
-    expect(screen.getByRole('button', { name: 'Start' })).toBeInTheDocument();
+  test('a rest pause ticks its last 3 seconds as a lead-in to the next hold', async () => {
+    renderPage(program, 4, 1); // 4s rest so it can count 3-2-1 into the next hold
+    await begin();
+    await vi.advanceTimersByTimeAsync(5000); // 3s prep + 2s hold → Rest (4s remaining)
+    expect(mode()).toBe('rest');
+    freqs.length = 0;
+    await vi.advanceTimersByTimeAsync(3000); // rest 4→1: three lead-in ticks
+    expect(freqs).toEqual([660, 660, 660]);
   });
 
-  test('skip and back navigate steps; skipping past the end completes', async () => {
-    renderPage();
+  test('zero pause times produce a holds-only program', async () => {
+    renderPage(program, 0, 0);
+    await begin();
+    expect(screen.getByText('Step 1 of 4')).toBeInTheDocument();
+  });
+
+  test('a no-reposition per-side exercise alternates sides with rests only', async () => {
+    renderPage([ex({ slug: 'alt', scheme: '2', perSide: true, needsReposition: false })]);
+    await begin();
+    // L, Rest, R, Rest, L, Rest, R — 7 steps, no repositions.
+    expect(screen.getByText('Step 1 of 7')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'ALT — Left', level: 2 })).toBeInTheDocument();
+  });
+
+  test('skip and back navigate; skipping to the end completes', async () => {
+    renderPage(program, 0, 0); // holds only: A, A, B·L, B·R
+    await begin();
     expect(screen.getByRole('button', { name: '← Back' })).toBeDisabled();
-
     const skip = () => fireEvent.click(screen.getByRole('button', { name: 'Skip →' }));
 
     await skip();
-    expect(screen.getByText(/^Rest — /)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '← Back' })).toBeEnabled();
-
+    expect(screen.getByText('Step 2 of 4')).toBeInTheDocument();
     await fireEvent.click(screen.getByRole('button', { name: '← Back' }));
-    expect(screen.getByText('Step 1 of 7')).toBeInTheDocument();
+    expect(screen.getByText('Step 1 of 4')).toBeInTheDocument();
 
-    await skip();
-    await skip();
-    await skip();
-    expect(screen.getByText(/^Reposition — /)).toBeInTheDocument();
-
-    await skip();
-    await skip();
-    await skip();
-    await skip();
+    for (let i = 0; i < 4; i++) await skip();
     expect(screen.getByText(/Session complete/)).toBeInTheDocument();
   });
 
-  test('finishing logs the session locally and navigates to history', async () => {
+  test('begin stores the session immediately; each unit updates it', async () => {
+    renderPage(program, 0, 0); // holds only: A, A, B·L, B·R
+    await begin();
+    expect(vi.mocked(startSession).mock.calls[0][0]).toEqual([
+      { slug: 'a', unit: 'hold', target: 2, completed: 0, rating: null },
+      { slug: 'b', unit: 'hold', target: 2, completed: 0, rating: null }
+    ]);
+    await vi.advanceTimersByTimeAsync(5000); // 3s prep + 2s hold → first unit done
+    expect(updateSession).toHaveBeenCalledWith('uuid-1', {
+      exercises: [
+        { slug: 'a', unit: 'hold', target: 2, completed: 1, rating: null },
+        { slug: 'b', unit: 'hold', target: 2, completed: 0, rating: null }
+      ],
+      notes: ''
+    });
+  });
+
+  test('completion shows the rating dialog; Save stores ratings + notes', async () => {
     renderPage(program, 0, 0);
+    await begin();
     for (let i = 0; i < 4; i++) {
       await fireEvent.click(screen.getByRole('button', { name: 'Skip →' }));
     }
-    await fireEvent.click(screen.getByRole('button', { name: /Log it/ }));
-    expect(logSession).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(logSession).mock.calls[0][0]).toEqual([
-      { slug: 'a', unit: 'hold', target: 2, completed: 0 },
-      { slug: 'b', unit: 'hold', target: 2, completed: 0 }
+    expect(screen.getByText(/Session complete/)).toBeInTheDocument();
+    expect(screen.getAllByRole('radio')).toHaveLength(10); // 5 options × 2 exercises
+
+    await fireEvent.click(screen.getAllByRole('radio', { name: 'Just right' })[0]);
+    await fireEvent.click(screen.getAllByRole('radio', { name: 'Too hard' })[1]);
+    await fireEvent.input(screen.getByRole('textbox'), { target: { value: 'left side weak' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    expect(vi.mocked(updateSession).mock.lastCall).toEqual([
+      'uuid-1',
+      {
+        exercises: [
+          { slug: 'a', unit: 'hold', target: 2, completed: 0, rating: 3 },
+          { slug: 'b', unit: 'hold', target: 2, completed: 0, rating: 4 }
+        ],
+        notes: 'left side weak'
+      }
     ]);
     expect(goto).toHaveBeenCalledWith('/history');
   });
 
-  test('reps mode counts with a Done button instead of a timer', async () => {
+  test('tap-paced reps show Done and advance without a timer', async () => {
     renderPage([ex({ slug: 'r', mode: 'reps', scheme: '2', holdSeconds: undefined })]);
-    expect(screen.getByText('Step 1 of 2')).toBeInTheDocument();
-    expect(screen.getByText(/rep 1\/2/)).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Start' })).not.toBeInTheDocument();
-    expect(screen.getByText(/, reps$/)).toBeInTheDocument();
-
+    await begin(); // first step is a rep → no timer starts
+    expect(mode()).toBe('active');
+    expect(screen.getByText('✓')).toBeInTheDocument();
     await fireEvent.click(screen.getByRole('button', { name: 'Done ✓' }));
-    expect(screen.getByText(/rep 2\/2/)).toBeInTheDocument();
+    expect(screen.getByText('2/2')).toBeInTheDocument();
     await fireEvent.click(screen.getByRole('button', { name: 'Done ✓' }));
     expect(screen.getByText(/Session complete/)).toBeInTheDocument();
-  });
-
-  test('a no-reposition per-side exercise alternates sides with rests only', () => {
-    renderPage([ex({ slug: 'alt', scheme: '2', perSide: true, needsReposition: false })]);
-    // L, Rest, R, Rest, L, Rest, R = 7 steps, none of them a reposition.
-    expect(screen.getByText('Step 1 of 7')).toBeInTheDocument();
-    expect(screen.getByText(/Set 1\/1 · Left · hold 1\/2/)).toBeInTheDocument();
   });
 
   test('auto-run halts on a rep and resumes when Done is tapped', async () => {
@@ -240,39 +312,17 @@ describe('workout page (brittle component UI - safe to skip)', () => {
       ex({ slug: 'r', mode: 'reps', holdSeconds: undefined }),
       ex({ slug: 'h2' })
     ];
-    renderPage(mixed);
-    expect(screen.getByText('Step 1 of 4')).toBeInTheDocument();
-
-    await fireEvent.click(screen.getByRole('button', { name: 'Start' }));
-    // 3s prep + the 1s hold before landing on the tap-paced rep.
-    await vi.advanceTimersByTimeAsync(4000);
-    expect(screen.getByText(/rep 1\/1/)).toBeInTheDocument();
+    renderPage(mixed); // steps: h1, r, Reposition, h2
+    await begin();
+    await vi.advanceTimersByTimeAsync(4000); // 3s prep + 1s hold → halted on the rep
+    expect(screen.getByRole('button', { name: 'Done ✓' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Pause' })).not.toBeInTheDocument();
 
     await fireEvent.click(screen.getByRole('button', { name: 'Done ✓' }));
-    expect(screen.getByText(/^Reposition — /)).toBeInTheDocument();
+    expect(mode()).toBe('reposition');
     expect(screen.getByRole('button', { name: 'Pause' })).toBeInTheDocument();
 
-    await vi.advanceTimersByTimeAsync(2000);
+    await vi.advanceTimersByTimeAsync(2000); // reposition 1s + h2 1s
     expect(screen.getByText(/Session complete/)).toBeInTheDocument();
-  });
-
-  test('start during a rest/reposition pause skips the prep countdown', async () => {
-    renderPage();
-    await fireEvent.click(screen.getByRole('button', { name: 'Skip →' })); // on the Rest step
-    await fireEvent.click(screen.getByRole('button', { name: 'Start' }));
-    expect(screen.queryByText('Get ready…')).not.toBeInTheDocument();
-  });
-
-  test('a rest pause ticks its last 3 seconds as a lead-in to the next hold', async () => {
-    renderPage(program, 3, 1);
-    await fireEvent.click(screen.getByRole('button', { name: 'Start' }));
-    // 3s prep + A's 2s hold → hold-done, then onto the 3s rest (remaining 3).
-    await vi.advanceTimersByTimeAsync(5000);
-    expect(screen.getByText(/^Rest — /)).toBeInTheDocument();
-    freqs.length = 0;
-    // Rest counts 3→2→1: ticks at remaining 2 and 1 (both >0 and <=3).
-    await vi.advanceTimersByTimeAsync(2000);
-    expect(freqs).toEqual([660, 660]);
   });
 });

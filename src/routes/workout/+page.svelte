@@ -3,11 +3,11 @@
   import { SvelteSet } from 'svelte/reactivity';
   import { goto as navigate } from '$app/navigation';
   import { exercises } from '$lib/exercises';
-  import { buildSteps, nextUnit } from '$lib/workout';
-  import { countdownTick, exerciseDone, holdDone, lastRep, setDone } from '$lib/client/audio';
-  import { logSession } from '$lib/client/sessions.svelte';
+  import { buildSteps, nextUnit, type Step } from '$lib/workout';
+  import { startSession, updateSession } from '$lib/client/sessions.svelte';
   import { timers } from '$lib/client/settings.svelte';
-  import type { CompletionEntry } from '$lib/sync';
+  import { countdownTick, exerciseDone, holdDone, lastRep, setDone } from '$lib/client/audio';
+  import { RATING_LABELS, type CompletionEntry } from '$lib/sync';
 
   // The program is static per page load; compute the step list once.
   const steps = untrack(() => buildSteps(exercises, timers.restSeconds, timers.repositionSeconds));
@@ -15,12 +15,20 @@
   let index = $state(0);
   let remaining = $state(steps[0]?.hold ?? 0);
   let running = $state(false);
-  let done = $state(false);
+  let started = $state(false);
   let prep = $state(0);
+  let done = $state(false);
   // Indices of units the user actually finished (timer hit zero, or tapped Done).
   // Skipping past a unit leaves it out, reducing that exercise's completeness.
   const completed = new SvelteSet<number>();
   let timer: ReturnType<typeof setInterval> | null = null;
+
+  // Difficulty per exercise (1–5), set in the end-of-session dialog.
+  let ratings = $state<Record<string, number | null>>(
+    Object.fromEntries(exercises.map((e) => [e.slug, null]))
+  );
+  let notes = $state('');
+  let sessionUuid: string | null = null;
 
   const step = $derived(steps[index]);
 
@@ -35,7 +43,6 @@
 
   const currentSlug = $derived(stepSlugs[index]);
   const currentEx = $derived(exercises.find((e) => e.slug === currentSlug));
-  const nextEx = $derived(exercises[exercises.findIndex((e) => e.slug === currentSlug) + 1]);
   const exerciseDuration = $derived(
     durations.reduce((t, d, j) => (stepSlugs[j] === currentSlug ? t + d : t), 0)
   );
@@ -47,6 +54,47 @@
 
   const fmt = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 
+  // What the athlete is doing or about to do: pause steps display the unit they
+  // lead into, which keeps the reposition target and side switch on screen.
+  const displayStep = $derived(step.kind === 'unit' ? step : nextUnit(steps, index));
+  const upcoming = $derived(displayStep ? nextUnit(steps, steps.indexOf(displayStep)) : null);
+
+  // What the athlete should be doing RIGHT NOW, as one word.
+  const mode = $derived(
+    prep > 0
+      ? 'prep'
+      : !running && step.hold !== null
+        ? 'paused'
+        : step.kind === 'unit'
+          ? 'active'
+          : step.kind
+  );
+  const MODE_LABEL: Record<string, string> = {
+    prep: 'GET READY',
+    active: 'GO',
+    rest: 'REST',
+    reposition: 'REPOSITION',
+    paused: 'PAUSED'
+  };
+
+  const image = $derived(
+    displayStep?.side === 'Left'
+      ? (currentEx?.imageLeft ?? currentEx?.image)
+      : displayStep?.side === 'Right'
+        ? (currentEx?.imageRight ?? currentEx?.image)
+        : currentEx?.image
+  );
+
+  // "Next:" names what follows the displayed unit — the next exercise (with
+  // side), a side switch, or the next rep of the same position.
+  function describeNext(u: Step | null, from: Step | null): string {
+    if (!u) return 'Done 🎉';
+    if (u.slug !== from?.slug) return `${u.exercise}${u.side ? ` — ${u.side}` : ''}`;
+    if (u.side !== from.side) return `Switch to ${u.side}`;
+    return `${u.hold !== null ? 'Hold' : 'Rep'} ${u.rep}/${u.repCount}`;
+  }
+  const nextLabel = $derived(describeNext(upcoming, displayStep));
+
   // Per-exercise completion, logged to the local store on finish. Pause steps
   // have no slug, so they never count towards any exercise.
   const completion = $derived<CompletionEntry[]>(
@@ -56,26 +104,30 @@
         slug: ex.slug,
         unit: ex.mode === 'hold' ? 'hold' : 'rep',
         target: idxs.length,
-        completed: idxs.filter((i) => completed.has(i)).length
+        completed: idxs.filter((i) => completed.has(i)).length,
+        rating: ratings[ex.slug] ?? null
       };
     })
   );
 
-  // Local-first: write the session to the store (which syncs in the background)
-  // and go straight to history — no network round-trip on the completion path.
-  function finish() {
-    logSession(completion);
-    void navigate('/history');
+  // The session exists from the first action and is upserted (and synced)
+  // after every unit — abandoning mid-workout still keeps what was done.
+  // There is no separate save step; the rating dialog updates the same session.
+  function persist() {
+    if (sessionUuid === null) sessionUuid = startSession(completion);
+    else updateSession(sessionUuid, { exercises: completion, notes });
   }
 
   function markDone() {
     completed.add(index);
+    persist();
   }
 
   function stop() {
     if (timer) clearInterval(timer);
     timer = null;
     running = false;
+    prep = 0;
   }
 
   // One start runs the whole workout: hitting zero rolls straight into the
@@ -120,6 +172,18 @@
     timer = setInterval(tick, 1000);
   }
 
+  // Intro → session. A tap-paced first step just shows its Done button.
+  function begin() {
+    started = true;
+    persist();
+    if (step.hold !== null) start();
+  }
+
+  function saveAndFinish() {
+    persist();
+    void navigate('/history');
+  }
+
   // Reps have no timer: tapping Done counts the rep and advances, resuming the
   // auto-run when the next step is timed.
   function repDone() {
@@ -150,58 +214,42 @@
   const back = () => goto(index - 1);
 </script>
 
-<h1>Workout</h1>
-
 {#if steps.length === 0}
   <p>No exercises configured.</p>
 {:else if done}
-  <article style="text-align:center">
-    <h2>🎉 Session complete</h2>
-    <button onclick={finish}>Log it & view history</button>
+  <article>
+    <h2 style="text-align:center">🎉 Session complete</h2>
+    <p style="text-align:center">How hard was each exercise?</p>
+    {#each exercises as ex (ex.slug)}
+      <fieldset>
+        <legend><strong>{ex.name}</strong></legend>
+        {#each RATING_LABELS as label, i (label)}
+          <label>
+            <input
+              type="radio"
+              name="rating-{ex.slug}"
+              value={i + 1}
+              bind:group={ratings[ex.slug]}
+            />
+            {label}
+          </label>
+        {/each}
+      </fieldset>
+    {/each}
+    <label>
+      Notes
+      <textarea bind:value={notes} rows="3" placeholder="Anything to remember?"></textarea>
+    </label>
+    <button onclick={saveAndFinish}>Save</button>
   </article>
-{:else}
+{:else if !started}
+  <h1>Workout</h1>
   <article>
     <hgroup>
-      <h2 class="current-ex">{currentEx?.name}</h2>
-      <p class="next-ex">Next: {nextEx?.name ?? 'Done 🎉'}</p>
+      <h2>{exercises.map((e) => e.name).join(' · ')}</h2>
+      <p>{fmt(totalDuration)} total</p>
     </hgroup>
-    <p class="step-label">{step.slug ? step.label : `${step.exercise} — ${step.label}`}</p>
-
-    {#if step.hold === null}
-      <p class="timer">✓</p>
-    {:else if prep > 0}
-      <p class="timer">{prep}</p>
-      <p>Get ready…</p>
-    {:else}
-      <p class="timer" class:running>{remaining}</p>
-      <progress value={step.hold - remaining} max={step.hold}></progress>
-    {/if}
-
-    <div class="grid">
-      {#if step.hold === null}
-        <button onclick={repDone}>Done ✓</button>
-      {:else if running}
-        <button class="secondary" onclick={stop}>Pause</button>
-      {:else}
-        <button onclick={start}>Start</button>
-      {/if}
-      <button class="outline" onclick={next}>Skip →</button>
-    </div>
-    <button class="outline secondary" onclick={back} disabled={index === 0}>← Back</button>
-
-    <footer>
-      <div class="time-row">
-        <span>Exercise</span>
-        <strong>{fmt(exerciseLeft)}</strong>
-      </div>
-      <progress value={exerciseDuration - exerciseLeft} max={exerciseDuration}></progress>
-      <div class="time-row">
-        <span>Total</span>
-        <strong>{fmt(totalLeft)}</strong>
-      </div>
-      <progress value={totalDuration - totalLeft} max={totalDuration}></progress>
-      <small>Step {index + 1} of {steps.length}</small>
-    </footer>
+    <button class="start-big" onclick={begin}>Start workout</button>
   </article>
 
   <details>
@@ -228,4 +276,147 @@
       </article>
     {/each}
   </details>
+{:else}
+  <div class="session" data-mode={mode}>
+    <div class="banner">{MODE_LABEL[mode]}</div>
+    <hgroup class="who">
+      <h2>{displayStep?.exercise}{displayStep?.side ? ` — ${displayStep.side}` : ''}</h2>
+      <p class="next">Next: {nextLabel}</p>
+    </hgroup>
+
+    <div class="counts">
+      <div><small>Set</small><strong>{displayStep?.set}/{displayStep?.setCount}</strong></div>
+      <div>
+        <small>{displayStep?.hold !== null ? 'Hold' : 'Rep'}</small>
+        <strong>{displayStep?.rep}/{displayStep?.repCount}</strong>
+      </div>
+    </div>
+
+    <p class="big-timer">{prep > 0 ? prep : step.hold === null ? '✓' : remaining}</p>
+    {#if step.hold !== null && prep === 0}
+      <progress value={step.hold - remaining} max={step.hold}></progress>
+    {/if}
+
+    {#if image}
+      <img src={image} alt="How to perform the {displayStep?.exercise}" />
+    {/if}
+    <p class="cue">{displayStep?.cue ? `💡 ${displayStep.cue}` : ''}</p>
+
+    <div class="grid controls">
+      {#if step.hold === null}
+        <button onclick={repDone}>Done ✓</button>
+      {:else if running}
+        <button class="secondary" onclick={stop}>Pause</button>
+      {:else}
+        <button onclick={start}>Start</button>
+      {/if}
+      <button class="outline" onclick={next}>Skip →</button>
+    </div>
+    <button class="outline secondary" onclick={back} disabled={index === 0}>← Back</button>
+
+    <footer>
+      <div class="time-row">
+        <span>Exercise</span>
+        <strong>{fmt(exerciseLeft)}</strong>
+      </div>
+      <progress value={exerciseDuration - exerciseLeft} max={exerciseDuration}></progress>
+      <div class="time-row">
+        <span>Total</span>
+        <strong>{fmt(totalLeft)}</strong>
+      </div>
+      <progress value={totalDuration - totalLeft} max={totalDuration}></progress>
+      <small>Step {index + 1} of {steps.length}</small>
+    </footer>
+  </div>
 {/if}
+
+<style>
+  .start-big {
+    width: 100%;
+    font-size: 1.4rem;
+  }
+  .session {
+    /* "Fullscreen": a fixed overlay beats the Fullscreen API (works on iOS). */
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 1rem;
+    background: var(--pico-background-color);
+    text-align: center;
+    --state: #6c757d; /* prep + paused grey */
+  }
+  .session[data-mode='active'] {
+    --state: #2e7d32; /* go green */
+  }
+  .session[data-mode='rest'] {
+    --state: #b58900; /* rest amber */
+  }
+  .session[data-mode='reposition'] {
+    --state: #1565c0; /* reposition blue */
+  }
+  .banner {
+    width: 100%;
+    padding: 0.4rem;
+    border-radius: var(--pico-border-radius);
+    font-weight: 700;
+    letter-spacing: 0.25em;
+    color: #fff;
+    background: var(--state);
+  }
+  .who {
+    margin-bottom: 0;
+  }
+  .next {
+    color: var(--pico-muted-color);
+  }
+  /* Fixed two-column grid + tabular digits: Set stays left, Hold/Rep stays
+     right, and the numbers never shift position during the session. */
+  .counts {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    width: 100%;
+    max-width: 22rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .counts small {
+    display: block;
+    color: var(--pico-muted-color);
+  }
+  .counts strong {
+    font-size: 2.2rem;
+  }
+  .big-timer {
+    font-size: clamp(4rem, 28vw, 8rem);
+    line-height: 1;
+    margin: 0;
+    font-variant-numeric: tabular-nums;
+    color: var(--state);
+  }
+  .session img {
+    max-height: 18vh;
+    max-width: 100%;
+  }
+  /* Reserve the cue's space so the layout never jumps between reps. */
+  .cue {
+    min-height: 2.6rem;
+    margin: 0;
+  }
+  .controls {
+    width: 100%;
+    max-width: 22rem;
+  }
+  .session footer {
+    width: 100%;
+    max-width: 26rem;
+    margin-top: auto;
+  }
+  .time-row {
+    display: flex;
+    justify-content: space-between;
+  }
+</style>

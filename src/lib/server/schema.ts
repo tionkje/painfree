@@ -11,7 +11,9 @@ export const sessions = sqliteTable('sessions', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   uuid: text('uuid').notNull().unique(),
   completedAt: integer('completed_at', { mode: 'timestamp_ms' }).notNull(),
-  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull()
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+  // Free-form note from the end-of-session dialog; null = none.
+  notes: text('notes')
 });
 
 // Per-exercise completion within a session, one row per exercise done. Unit-
@@ -27,7 +29,9 @@ export const sessionExercises = sqliteTable('session_exercises', {
   exerciseSlug: text('exercise_slug').notNull(),
   unit: text('unit', { enum: ['hold', 'rep'] }).notNull(),
   targetUnits: integer('target_units').notNull(),
-  completedUnits: integer('completed_units').notNull()
+  completedUnits: integer('completed_units').notNull(),
+  // Perceived difficulty 1 (way too easy) … 5 (way too hard); null = unrated.
+  rating: integer('rating')
 });
 
 // Timer settings (rest/reposition) are client-local (localStorage) in the

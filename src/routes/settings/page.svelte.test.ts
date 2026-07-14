@@ -101,4 +101,25 @@ describe('settings page (brittle component UI - safe to skip)', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
     expect(state.sessions[0].deleted).toBe(true);
   });
+
+  test('rating a session exercise updates the stored session', async () => {
+    state.sessions = [
+      session({
+        uuid: 'a',
+        exercises: [{ slug: 'curl-up', unit: 'hold', target: 12, completed: 12, rating: null }]
+      })
+    ];
+    render(Page);
+    await fireEvent.change(document.querySelector('select')!, { target: { value: '5' } });
+    expect(state.sessions[0].exercises[0].rating).toBe(5);
+    expect(state.sessions[0].synced).toBe(false);
+  });
+
+  test('editing notes updates the stored session', async () => {
+    state.sessions = [session({ uuid: 'a', notes: '' })];
+    render(Page);
+    await fireEvent.change(document.querySelector('textarea')!, { target: { value: 'hip pain' } });
+    expect(state.sessions[0].notes).toBe('hip pain');
+    expect(state.sessions[0].synced).toBe(false);
+  });
 });
